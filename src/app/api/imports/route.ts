@@ -8,10 +8,10 @@ import {
   storeImmutableArtifact,
 } from "@/artifacts/local-storage";
 import {
-  DEFAULT_REGION_ALIASES,
   parseHolidayWorkbook,
   WorkbookContractError,
 } from "@/imports/holiday-workbook";
+import { loadActiveRegionAliases } from "@/holiday/region-registry";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
 
@@ -80,8 +80,17 @@ export async function POST(request: Request): Promise<Response> {
 
   let parsed;
   try {
+    const regionAliases = await loadActiveRegionAliases();
+    if (regionAliases.size === 0) {
+      console.error("ATI PH calendar-region registry has no active aliases.");
+      return Response.json(
+        { error: "Calendar-region registry is not configured." },
+        { status: 503 },
+      );
+    }
+
     parsed = await parseHolidayWorkbook(bytes, {
-      regionAliases: DEFAULT_REGION_ALIASES,
+      regionAliases,
       rejectSampleRows: process.env.NODE_ENV === "production",
     });
   } catch (error) {

@@ -13,7 +13,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "worker": "tsx src/worker/main.ts"
+    "worker": "tsx src/worker/main.ts",
+    "db:seed": "prisma db seed"
   },
   "engines": {
     "node": ">=20.19.0"
@@ -43,5 +44,8 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }
