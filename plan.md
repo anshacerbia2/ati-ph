@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Implementation baseline; Phase 0 decisions remain open |
-| Version | 0.3.4 |
+| Status | Phase 0 auth foundation and Phase 1 ingestion slice implemented; remaining gates stay open |
+| Version | 0.3.5 |
 | Date | 2026-08-15 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -100,6 +100,30 @@ The application must demonstrate a complete mounted login round trip through the
 ### Objective
 
 Replace spreadsheet processing with controlled ingestion and canonical holiday data
+
+### Implementation status — 2026-08-15
+
+Completed in the first Phase 1 vertical slice:
+
+- Authenticated Operator/Administrator XLSX upload UI and Route Handler
+- Immutable local raw-artifact adapter with SHA-256 evidence
+- Duplicate-file confirmation gate
+- Legacy `Holiday_Master` schema mapping and approved header aliases
+- Row-level raw and normalized staging persistence
+- Required-field, region, date range, sample-row, formula, duplicate, overlap, macro, and corruption validation
+- Multi-region normalization with `Day` and `Tag` explicitly ignored as authoritative input
+- Validation summary in the ATI One-aligned dashboard
+- Audit event and transactional `ImportBatchValidated` outbox event
+- Prisma migration `20260814220557_governed_import_foundation`
+
+Still pending before the Phase 1 exit gate is complete:
+
+- Database-managed calendar-region and alias administration
+- Full validation-report download and authorized raw-artifact download
+- Controlled staging corrections and warning acknowledgement
+- Maker-checker approval request and decision
+- Canonical holiday definition/occurrence publication and multi-day occurrence-date expansion
+- Publication idempotency and source-to-canonical lineage UI
 
 ### Scope
 

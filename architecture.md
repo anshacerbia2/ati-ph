@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Implementation baseline; Phase 0 decisions remain open |
-| Version | 0.3.4 |
+| Status | Phase 0 auth foundation and Phase 1 ingestion slice implemented; remaining gates stay open |
+| Version | 0.3.5 |
 | Date | 2026-08-15 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -144,6 +144,26 @@ notification_run
 #### Purpose
 
 Turn an uploaded external file into validated staging data without allowing unvalidated input into canonical records
+
+#### Implemented ingestion baseline (2026-08-15)
+
+`POST /api/imports` now implements the first safe vertical slice:
+
+- Operator or Administrator authorization is checked server-side
+- `.xlsx` extension, size, ZIP signature, CRC readability, macro/VBA absence, required sheet, and required headers are validated
+- SHA-256 duplicate detection requires explicit confirmation before identical content can be reprocessed
+- Original bytes are stored once under an immutable local-storage key; database failure removes only the unregistered file
+- `Holiday_Master` headers are mapped by approved aliases and column order is ignored
+- Raw rows and normalized staging rows are stored separately
+- Multiple legacy regions are split and resolved to canonical region codes
+- Typed Excel dates and ISO dates are accepted; formula cells cannot provide authoritative fields
+- `Day` and `Tag` remain raw evidence and are recomputed only during canonical publication
+- Batch, row, issue, audit, and successful `ImportBatchValidated` outbox records are committed atomically
+- Invalid batches remain reviewable but cannot emit the validated event
+
+The current storage adapter is appropriate for local development. Production must mount `ARTIFACT_STORAGE_DIR` on durable encrypted storage or replace the adapter without changing the import contract. Approval, staging correction, canonical holiday publication, artifact download, and validation-report export remain later Phase 1 slices.
+
+The supplied legacy workbook was used as an executable fixture: 25 holiday rows were detected, 22 production-like rows passed, and the three `(SAMPLE)` rows with `xxx` regions were blocked. See `docs/GOVERNED-IMPORT-CONTRACT.md`.
 
 #### Owns
 

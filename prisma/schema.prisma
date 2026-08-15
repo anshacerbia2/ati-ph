@@ -21,35 +21,160 @@ enum OutboxStatus {
   FAILED
 }
 
+enum ArtifactType {
+  RAW_IMPORT
+  IMPORT_REPORT
+  OUTPUT_XLSX
+  EMAIL_PREVIEW
+  ERROR_REPORT
+  PROVIDER_EVENT
+}
+
+enum ImportBatchStatus {
+  UPLOADED
+  VALIDATED
+  INVALID
+  FAILED
+}
+
+enum ImportRowStatus {
+  VALID
+  INVALID
+  EXCLUDED
+}
+
+enum ValidationSeverity {
+  ERROR
+  WARNING
+  INFO
+}
+
 model User {
-  id          String        @id @db.VarChar(191)
-  email       String        @unique @db.VarChar(320)
-  displayName String?       @db.VarChar(255)
-  role        UserRole      @default(AUDITOR)
-  isActive    Boolean       @default(true)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  sessions    AuthSession[]
-  auditEvents AuditEvent[]
+  id                 String                  @id @db.VarChar(191)
+  email              String                  @unique @db.VarChar(320)
+  displayName        String?                 @db.VarChar(255)
+  role               UserRole                @default(AUDITOR)
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  sessions           AuthSession[]
+  auditEvents        AuditEvent[]
+  artifacts          FileArtifact[]          @relation("ArtifactCreator")
+  imports            ImportBatch[]           @relation("ImportUploader")
+  editedRows         ImportRow[]             @relation("ImportRowEditor")
+  acknowledgedIssues ImportValidationIssue[] @relation("IssueAcknowledger")
 
   @@index([role, isActive])
   @@map("users")
 }
 
+model FileArtifact {
+  id              String       @id @default(cuid()) @db.VarChar(191)
+  artifactType    ArtifactType
+  fileName        String       @db.VarChar(255)
+  mimeType        String       @db.VarChar(150)
+  sizeBytes       BigInt
+  sha256          String       @db.Char(64)
+  storageProvider String       @db.VarChar(40)
+  storageKey      String       @unique @db.VarChar(1000)
+  retentionClass  String       @db.VarChar(50)
+  createdById     String?      @db.VarChar(191)
+  createdAt       DateTime     @default(now())
+  createdBy       User?        @relation("ArtifactCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  importBatch     ImportBatch?
+
+  @@index([sha256])
+  @@index([artifactType, createdAt])
+  @@map("file_artifacts")
+}
+
+model ImportBatch {
+  id            String                  @id @default(cuid()) @db.VarChar(191)
+  batchNumber   String                  @unique @db.VarChar(50)
+  sourceName    String                  @db.VarChar(200)
+  schemaName    String                  @db.VarChar(100)
+  schemaVersion String                  @db.VarChar(30)
+  rawArtifactId String                  @unique @db.VarChar(191)
+  fileSha256    String                  @db.Char(64)
+  columnMapping Json
+  status        ImportBatchStatus       @default(UPLOADED)
+  totalRows     Int                     @default(0)
+  validRows     Int                     @default(0)
+  invalidRows   Int                     @default(0)
+  warningCount  Int                     @default(0)
+  uploadedById  String                  @db.VarChar(191)
+  uploadedAt    DateTime                @default(now())
+  submittedAt   DateTime?
+  publishedAt   DateTime?
+  failureReason String?                 @db.Text
+  rawArtifact   FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
+  uploadedBy    User                    @relation("ImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  rows          ImportRow[]
+  issues        ImportValidationIssue[]
+
+  @@index([fileSha256])
+  @@index([status, uploadedAt])
+  @@map("import_batches")
+}
+
+model ImportRow {
+  id                  String                  @id @default(cuid()) @db.VarChar(191)
+  importBatchId       String                  @db.VarChar(191)
+  sourceSheet         String                  @db.VarChar(150)
+  sourceRowNumber     Int
+  sourceRowId         String?                 @db.VarChar(200)
+  rawData             Json
+  normalizedData      Json
+  status              ImportRowStatus
+  warningAcknowledged Boolean                 @default(false)
+  excludedReason      String?                 @db.Text
+  editedById          String?                 @db.VarChar(191)
+  editedAt            DateTime?
+  createdAt           DateTime                @default(now())
+  importBatch         ImportBatch             @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  editedBy            User?                   @relation("ImportRowEditor", fields: [editedById], references: [id], onDelete: SetNull)
+  issues              ImportValidationIssue[]
+
+  @@unique([importBatchId, sourceSheet, sourceRowNumber])
+  @@index([importBatchId, status])
+  @@map("import_rows")
+}
+
+model ImportValidationIssue {
+  id               String             @id @default(cuid()) @db.VarChar(191)
+  importBatchId    String             @db.VarChar(191)
+  importRowId      String?            @db.VarChar(191)
+  severity         ValidationSeverity
+  errorCode        String             @db.VarChar(80)
+  fieldName        String?            @db.VarChar(100)
+  rejectedValue    String?            @db.Text
+  message          String             @db.Text
+  acknowledgedById String?            @db.VarChar(191)
+  acknowledgedAt   DateTime?
+  createdAt        DateTime           @default(now())
+  importBatch      ImportBatch        @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  importRow        ImportRow?         @relation(fields: [importRowId], references: [id], onDelete: Cascade)
+  acknowledgedBy   User?              @relation("IssueAcknowledger", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([importBatchId, severity])
+  @@index([importRowId])
+  @@map("import_validation_issues")
+}
+
 model AuthSession {
-  id                 String    @id @db.VarChar(96)
-  userId             String    @db.VarChar(191)
-  tokensEncrypted    String    @db.Text
-  keycloakSid        String?   @db.VarChar(191)
-  keycloakSub        String?   @db.VarChar(191)
-  keycloakClientId   String?   @db.VarChar(191)
-  refreshVersion     Int       @default(0)
-  lastRefreshedAt    DateTime?
-  revokedAt          DateTime?
-  expiresAt          DateTime
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @db.VarChar(96)
+  userId           String    @db.VarChar(191)
+  tokensEncrypted  String    @db.Text
+  keycloakSid      String?   @db.VarChar(191)
+  keycloakSub      String?   @db.VarChar(191)
+  keycloakClientId String?   @db.VarChar(191)
+  refreshVersion   Int       @default(0)
+  lastRefreshedAt  DateTime?
+  revokedAt        DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])

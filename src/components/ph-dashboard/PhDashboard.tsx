@@ -2,6 +2,7 @@ import { mountedPath } from "@/config/app";
 import { AtiIcon } from "@/components/ph-dashboard/AtiIcon";
 import { dashboardStats } from "@/components/ph-dashboard/data";
 import { HolidayTable } from "@/components/ph-dashboard/HolidayTable";
+import { ImportWorkspace } from "@/components/ph-dashboard/ImportWorkspace";
 
 const highlights = [
   {
@@ -30,6 +31,8 @@ export function PhDashboard({
   role: string;
   skillUrl: string;
 }) {
+  const canUpload = role === "ADMINISTRATOR" || role === "OPERATOR";
+
   return (
     <main className="dashboard-shell">
       <div className="dashboard-toolbar">
@@ -60,6 +63,8 @@ export function PhDashboard({
           ))}
         </div>
       </section>
+
+      <ImportWorkspace canUpload={canUpload} />
 
       <section className="stat-grid" aria-label="Notification summary">
         {dashboardStats.map((stat) => (

@@ -74,6 +74,27 @@ npm test
 npm run build
 ```
 
+## Governed holiday import
+
+The dashboard now accepts `.xlsx` uploads from users with the `OPERATOR` or
+`ADMINISTRATOR` application role. The first Phase 1 slice stores the original
+workbook immutably, stages `Holiday_Master` rows, normalizes legacy multi-region
+values, and records row/batch validation issues. It does not publish canonical
+holidays or send email.
+
+Development artifacts are written under `ARTIFACT_STORAGE_DIR` (default
+`./storage/artifacts`) and are ignored by Git. Production must use a durable,
+encrypted mounted path or a replacement storage adapter. Set
+`IMPORT_MAX_FILE_SIZE_BYTES` to the approved upload limit.
+
+The migration `20260814220557_governed_import_foundation` adds the artifact,
+import batch, staging row, and validation issue tables. Existing environments
+must run `npm run db:deploy`; use `npm run db:migrate` only while developing new
+migrations.
+
+The accepted workbook contract and current limitations are documented in
+`docs/GOVERNED-IMPORT-CONTRACT.md`.
+
 See `architecture.md` and `plan.md` for the implementation boundaries and
 delivery phases.
 

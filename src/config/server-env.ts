@@ -21,6 +21,13 @@ const serverEnvSchema = z.object({
   TRUST_ATI_ONE_PROXY: z.enum(["true", "false"]).default("false"),
   ATI_ONE_PROXY_SECRET: z.string().min(32).optional(),
   ATI_ONE_RETURN_URL: z.url().default("http://localhost:3000/"),
+  ARTIFACT_STORAGE_DIR: z.string().min(1).default("./storage/artifacts"),
+  IMPORT_MAX_FILE_SIZE_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1_048_576)
+    .max(52_428_800)
+    .default(10_485_760),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(60_000),
 });
 

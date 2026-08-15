@@ -47,6 +47,14 @@
 .ati-badge--brand { background: var(--ati-blue-100); color: var(--ati-blue-deep); }
 .ati-badge--success { background: var(--ati-success-bg); color: var(--ati-success); }
 .ati-badge--warning { background: var(--ati-warning-bg); color: var(--ati-warning); }
+.ati-badge--danger { background: var(--ati-danger-bg); color: var(--ati-danger); }
+
+.ati-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
+}
 
 .ati-tag {
   display: inline-flex;
