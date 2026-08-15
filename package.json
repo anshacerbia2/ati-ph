@@ -15,7 +15,9 @@
     "db:deploy": "prisma migrate deploy",
     "worker": "tsx src/worker/main.ts",
     "db:seed": "prisma db seed",
-    "authz:grant": "tsx scripts/grant-role.ts"
+    "authz:grant": "tsx scripts/grant-role.ts",
+    "verify:fast": "npm run typecheck && npm test && npm run lint",
+    "verify": "npm run verify:fast && npm run build"
   },
   "engines": {
     "node": ">=20.19.0"

@@ -42,6 +42,13 @@ enum ValidationSeverity {
   INFO
 }
 
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 model User {
   id                 String                  @id @default(uuid()) @db.Uuid
   externalSubject    String                  @unique @db.VarChar(191)
@@ -57,6 +64,9 @@ model User {
   editedRows         ImportRow[]             @relation("ImportRowEditor")
   acknowledgedIssues ImportValidationIssue[] @relation("IssueAcknowledger")
   roleAssignments    UserRoleAssignment[]
+  requestedApprovals  ApprovalRequest[]   @relation("ApprovalRequester")
+  decidedApprovals    ApprovalRequest[]   @relation("ApprovalDecider")
+  publishedOccurrences HolidayOccurrence[] @relation("OccurrencePublisher")
 
   @@index([isActive])
   @@map("users")
@@ -103,8 +113,9 @@ model ImportBatch {
   failureReason String?                 @db.Text
   rawArtifact   FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
   uploadedBy    User                    @relation("ImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
-  rows          ImportRow[]
-  issues        ImportValidationIssue[]
+  rows                 ImportRow[]
+  issues               ImportValidationIssue[]
+  publishedOccurrences HolidayOccurrence[] @relation("PublishedBatchOccurrences")
 
   @@index([fileSha256])
   @@index([status, uploadedAt])
@@ -128,6 +139,7 @@ model ImportRow {
   importBatch         ImportBatch             @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
   editedBy            User?                   @relation("ImportRowEditor", fields: [editedById], references: [id], onDelete: SetNull)
   issues              ImportValidationIssue[]
+  publishedOccurrence  HolidayOccurrence? @relation("SourceImportRowOccurrence")
 
   @@unique([importBatchId, sourceSheet, sourceRowNumber])
   @@index([importBatchId, status])
@@ -153,6 +165,85 @@ model ImportValidationIssue {
   @@index([importBatchId, severity])
   @@index([importRowId])
   @@map("import_validation_issues")
+}
+
+model HolidayDefinition {
+  id             String              @id @default(uuid()) @db.Uuid
+  canonicalName  String              @db.VarChar(200)
+  normalizedName String              @unique @db.VarChar(200)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  occurrences    HolidayOccurrence[]
+
+  @@map("holiday_definitions")
+}
+
+model HolidayOccurrence {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  holidayDefinitionId String                    @db.Uuid
+  sourceImportRowId   String                    @unique @db.Uuid
+  sourceImportBatchId String                    @db.Uuid
+  startDate           DateTime                  @db.Date
+  endDate             DateTime                  @db.Date
+  calendarYear        Int
+  publishedById       String                    @db.Uuid
+  publishedAt         DateTime                  @default(now())
+  definition          HolidayDefinition         @relation(fields: [holidayDefinitionId], references: [id], onDelete: Restrict)
+  sourceImportRow     ImportRow                 @relation("SourceImportRowOccurrence", fields: [sourceImportRowId], references: [id], onDelete: Restrict)
+  sourceImportBatch   ImportBatch               @relation("PublishedBatchOccurrences", fields: [sourceImportBatchId], references: [id], onDelete: Restrict)
+  publishedBy         User                      @relation("OccurrencePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  regions             HolidayOccurrenceRegion[]
+  dates               HolidayOccurrenceDate[]
+
+  @@index([sourceImportBatchId, publishedAt])
+  @@index([calendarYear, startDate])
+  @@map("holiday_occurrences")
+}
+
+model HolidayOccurrenceRegion {
+  holidayOccurrenceId String            @db.Uuid
+  calendarRegionId    String            @db.Uuid
+  occurrence          HolidayOccurrence @relation(fields: [holidayOccurrenceId], references: [id], onDelete: Cascade)
+  calendarRegion      CalendarRegion    @relation(fields: [calendarRegionId], references: [id], onDelete: Restrict)
+
+  @@id([holidayOccurrenceId, calendarRegionId])
+  @@index([calendarRegionId, holidayOccurrenceId])
+  @@map("holiday_occurrence_regions")
+}
+
+model HolidayOccurrenceDate {
+  id                  String            @id @default(uuid()) @db.Uuid
+  holidayOccurrenceId String            @db.Uuid
+  occurrenceDate      DateTime          @db.Date
+  dayOfWeek           String            @db.VarChar(9)
+  dayType             String            @db.VarChar(8)
+  occurrence          HolidayOccurrence @relation(fields: [holidayOccurrenceId], references: [id], onDelete: Cascade)
+
+  @@unique([holidayOccurrenceId, occurrenceDate])
+  @@index([occurrenceDate])
+  @@map("holiday_occurrence_dates")
+}
+
+model ApprovalRequest {
+  id                String         @id @default(uuid()) @db.Uuid
+  resourceType      String         @db.VarChar(100)
+  resourceId        String         @db.VarChar(191)
+  contentHash       String         @db.Char(64)
+  status            ApprovalStatus @default(PENDING)
+  activeResourceKey String?        @unique @db.VarChar(320)
+  requestedById     String         @db.Uuid
+  requestedAt       DateTime       @default(now())
+  decidedById       String?        @db.Uuid
+  decidedAt         DateTime?
+  decisionReason    String?        @db.Text
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  requestedBy       User           @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy         User?          @relation("ApprovalDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+
+  @@index([resourceType, resourceId, requestedAt])
+  @@index([status, requestedAt])
+  @@map("approval_requests")
 }
 
 model AuthSession {
@@ -296,7 +387,8 @@ model CalendarRegion {
   isActive    Boolean               @default(true)
   createdAt   DateTime              @default(now())
   updatedAt   DateTime              @updatedAt
-  aliases     CalendarRegionAlias[]
+  aliases             CalendarRegionAlias[]
+  holidayOccurrences HolidayOccurrenceRegion[]
 
   @@index([isActive, code])
   @@map("calendar_regions")

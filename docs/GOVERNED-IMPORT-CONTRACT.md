@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Implemented ingestion baseline |
-| Version | 1.0-draft |
+| Version | 1.5-draft |
 | Date | 2026-08-15 |
 | Schema name | `ati-public-holiday-import` |
 | Legacy schema version | `legacy-1.0` |
@@ -95,6 +95,64 @@ The raw artifact is written with create-only filesystem semantics. One database 
 
 If the transaction fails, only the not-yet-registered file is removed. Registered artifacts are never overwritten.
 
+## Evidence retrieval
+
+Users with the ATI PH `import.read` permission can retrieve evidence for an existing batch:
+
+- The validation report is generated deterministically from persisted batch metadata and the complete `import_validation_issues` set as UTF-8 CSV
+- The original workbook download reads only the registered raw artifact storage key
+- Raw bytes are SHA-256 verified against `file_artifacts.sha256` before release
+- A storage-provider mismatch, missing file, or hash mismatch fails closed
+- Validation-report and raw-workbook downloads each write an audit event before release
+- Responses are private, non-cacheable attachments and are served with `X-Content-Type-Options: nosniff`
+
+## Controlled staging correction
+
+- Raw workbook bytes and `rawData` remain immutable evidence
+- Operator/Administrator correction writes only `normalizedData`, editor identity, and edit timestamp
+- Governed editable fields are canonical region codes, holiday name, start date, end date, source reference, and notes
+- Region correction accepts active canonical region codes only; free-form aliases are not persisted as normalized authority
+- Exclusion requires an explicit reason and changes the row to `EXCLUDED`
+- Restoration removes the exclusion reason and re-enters deterministic validation
+- Every correction, exclusion, or restoration revalidates the complete non-excluded batch so duplicate and overlap rules cannot become stale
+- Existing warning acknowledgements survive revalidation only when the regenerated warning has the same stable issue identity; changed warnings require acknowledgement again
+- Row status, batch counts/status, regenerated row issues, audit event, and validation-state outbox transition commit transactionally
+- Submitted or published batches are frozen against staging mutation
+
+## Maker-checker approval
+
+- Submission is allowed only for a `VALIDATED` batch with at least one valid row, zero invalid rows, zero `ERROR` issues, and every `WARNING` acknowledged
+- Submission creates a reusable `approval_requests` record and stores a deterministic SHA-256 hash over normalized row content, row status/exclusion state, validation evidence, and warning acknowledgement state
+- `import_batches.submittedAt` freezes normalized staging and warning acknowledgement while the request is pending or approved
+- A user with `import.approve` must be different from the requester
+- Decision recomputes the frozen content hash and fails closed on mismatch
+- Approval remains frozen for canonical publication
+- Rejection requires a reason, clears `submittedAt`, and returns the batch to controlled correction/resubmission
+- Request and decision audit events plus outbox events commit in the same transaction as approval state
+
+## Canonical holiday publication
+
+- Publication requires a frozen batch with an `APPROVED` maker-checker request whose SHA-256 content hash still matches current staging and validation evidence
+- Only `VALID` rows publish; `EXCLUDED` rows remain source evidence but never create canonical holiday data
+- Each valid source row creates one `holiday_occurrences` record linked by immutable `sourceImportRowId` and `sourceImportBatchId`
+- The normalized holiday identity upserts a `holiday_definitions` record without mutating existing canonical history
+- Every normalized canonical region creates one `holiday_occurrence_regions` relation; inactive or missing canonical regions fail publication closed
+- Start/end periods expand inclusively into `holiday_occurrence_dates`
+- `dayOfWeek` and `dayType` (`WEEKDAY` or `WEEKEND`) are derived from each canonical date; legacy Excel `Day` and `Tag` are never publication authority
+- The publication transaction is serializable and atomically writes canonical rows, `import_batches.publishedAt`, audit evidence, and the `HolidayCalendarPublished` outbox event
+- A second publish call for an already-published batch returns the existing publication summary without duplicating canonical records
+- `sourceImportRowId` is unique in canonical occurrences, providing an additional database idempotency barrier
+- The batch review UI exposes source-row to canonical-occurrence, region, and expanded-date lineage
+
+## Warning acknowledgement
+
+- Only persisted `WARNING` issues can be acknowledged
+- `ERROR` remains blocking and cannot be acknowledged away
+- Operator/Administrator access uses the existing `import.create` permission; read-only roles can inspect acknowledgement state
+- Acknowledgement stores the acting ATI PH user and timestamp
+- Reversal is explicit and audited
+- Acknowledgement and its audit event commit in the same PostgreSQL transaction
+
 ## Source-workbook verification
 
 The current workbook produced this deterministic result:
@@ -112,8 +170,4 @@ This is an ingestion result, not business-owner sign-off on the holidays themsel
 ## Remaining Phase 1 work
 
 - Governed metadata sheet/named-range detection for schema name, version, year, source, and generation time
-- Authorized artifact and validation-report download
-- Staging correction, exclusion reason, and warning acknowledgement
-- Maker-checker submission and approval
-- Canonical holiday publication and multi-day date expansion
-- Publication diff, lineage view, and idempotent retry controls
+- Business-owner acceptance of the canonical publication result and mounted ATI One smoke verification

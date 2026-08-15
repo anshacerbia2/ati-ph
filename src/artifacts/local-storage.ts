@@ -1,6 +1,6 @@
 import "server-only";
 
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { getServerEnv } from "@/lib/env";
@@ -25,7 +25,15 @@ export async function storeImmutableArtifact(
   return { storageProvider: "LOCAL", storageKey };
 }
 
-export async function removeUnregisteredArtifact(storageKey: string): Promise<void> {
+export async function readStoredArtifact(
+  storageKey: string,
+): Promise<Uint8Array> {
+  return new Uint8Array(await readFile(resolveStorageTarget(storageKey)));
+}
+
+export async function removeUnregisteredArtifact(
+  storageKey: string,
+): Promise<void> {
   await rm(resolveStorageTarget(storageKey), { force: true });
 }
 

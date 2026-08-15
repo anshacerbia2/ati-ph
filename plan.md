@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.9 |
+| Version | 0.3.14 |
 | Date | 2026-08-15 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -118,14 +118,15 @@ Completed in the first Phase 1 vertical slice:
 - Database-managed calendar-region registry used by runtime import resolution
 - Administrator-only region and alias create, rename, activate, and deactivate controls with transactional audit events
 - Database-backed in-app navigation strip for the ATI One internal-app frame; ATI One retains global portal chrome while ATI PH menu visibility is permission-filtered and route/API authorization remains independently enforced
+- Permission-gated recent-import evidence view with complete CSV validation-report download and SHA-256-verified immutable raw-workbook download; every release is audit-recorded
+- Per-batch validation review page with Operator/Administrator warning acknowledgement and reversal, persisted with actor/time and transactional audit history
+- Controlled normalized-staging correction, exclusion, and restoration with immutable raw evidence, full-batch revalidation, audit history, and validation-state outbox transition
+- Reusable maker-checker approval request with frozen SHA-256 content hash, requester/approver separation, approve/reject decision history, transactional audit/outbox events, and rejection unfreeze for correction/resubmission
+- Idempotent canonical holiday publication from approved staging with holiday definition/occurrence/region/date persistence, inclusive multi-day expansion, derived weekday/weekend classification, immutable source-row lineage, and publication audit/outbox event
 
 Still pending before the Phase 1 exit gate is complete:
 
-- Full validation-report download and authorized raw-artifact download
-- Controlled staging corrections and warning acknowledgement
-- Maker-checker approval request and decision
-- Canonical holiday definition/occurrence publication and multi-day occurrence-date expansion
-- Publication idempotency and source-to-canonical lineage UI
+- Phase 1 mounted-portal acceptance and business-owner verification of canonical publication evidence
 
 ### Scope
 
@@ -182,11 +183,16 @@ import_rows
 import_validation_issues
 calendar_regions
 calendar_region_aliases
+approval_requests
+holiday_definitions
+holiday_occurrences
+holiday_occurrence_regions
+holiday_occurrence_dates
 audit_events
 outbox_events
 ```
 
-Approval and canonical holiday publication tables remain pending Phase 1 work and are not represented as already-created database objects
+The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage
 
 ### Explicitly excluded
 

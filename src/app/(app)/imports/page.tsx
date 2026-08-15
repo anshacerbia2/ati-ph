@@ -6,6 +6,7 @@ import { getCurrentSession } from "@/auth/session";
 import { AccessDenied } from "@/components/app-shell/AccessDenied";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { ImportWorkspace } from "@/components/ph-dashboard/ImportWorkspace";
+import { db } from "@/lib/db";
 
 export default async function ImportsPage() {
   const session = await getCurrentSession();
@@ -20,6 +21,27 @@ export default async function ImportsPage() {
     return <AccessDenied />;
   }
 
+  const recentImports = await db.importBatch.findMany({
+    orderBy: { uploadedAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      batchNumber: true,
+      sourceName: true,
+      status: true,
+      totalRows: true,
+      invalidRows: true,
+      warningCount: true,
+      uploadedAt: true,
+      uploadedBy: {
+        select: {
+          email: true,
+          displayName: true,
+        },
+      },
+    },
+  });
+
   return (
     <div className="page-stack">
       <PageHeader
@@ -29,6 +51,10 @@ export default async function ImportsPage() {
       />
       <ImportWorkspace
         canUpload={permissions.has(PERMISSIONS.IMPORT_CREATE)}
+        recentImports={recentImports.map((batch) => ({
+          ...batch,
+          uploadedAt: batch.uploadedAt.toISOString(),
+        }))}
       />
     </div>
   );
