@@ -1,0 +1,67 @@
+.ati-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.ati-btn {
+  display: inline-flex;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--ati-blue);
+  color: var(--ati-white);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.ati-btn:hover { background: var(--ati-blue-deep); transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.ati-btn:focus-visible { outline: none; box-shadow: var(--shadow-focus); }
+.ati-btn--secondary { border-color: var(--border-default); background: transparent; color: var(--ati-navy); }
+.ati-btn--secondary:hover { border-color: var(--ati-navy); background: var(--ati-gray-50); box-shadow: none; }
+
+.ati-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-label);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ati-badge--brand { background: var(--ati-blue-100); color: var(--ati-blue-deep); }
+.ati-badge--success { background: var(--ati-success-bg); color: var(--ati-success); }
+.ati-badge--warning { background: var(--ati-warning-bg); color: var(--ati-warning); }
+
+.ati-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--ati-gray-100);
+  color: var(--ati-gray-700);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ati-tag:hover { border-color: var(--border-default); }
+.ati-tag--selected { border-color: var(--ati-blue); background: var(--ati-blue-50); color: var(--ati-blue-deep); }
