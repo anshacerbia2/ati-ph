@@ -5,16 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["artifact", "audit", "execution", "holiday", "identity", "ingestion", "public"]
-}
-
-enum UserRole {
-  ADMINISTRATOR
-  OPERATOR
-  APPROVER
-  AUDITOR
-
-  @@schema("identity")
 }
 
 enum OutboxStatus {
@@ -22,8 +12,6 @@ enum OutboxStatus {
   PROCESSING
   COMPLETED
   FAILED
-
-  @@schema("execution")
 }
 
 enum ArtifactType {
@@ -33,8 +21,6 @@ enum ArtifactType {
   EMAIL_PREVIEW
   ERROR_REPORT
   PROVIDER_EVENT
-
-  @@schema("artifact")
 }
 
 enum ImportBatchStatus {
@@ -42,31 +28,25 @@ enum ImportBatchStatus {
   VALIDATED
   INVALID
   FAILED
-
-  @@schema("ingestion")
 }
 
 enum ImportRowStatus {
   VALID
   INVALID
   EXCLUDED
-
-  @@schema("ingestion")
 }
 
 enum ValidationSeverity {
   ERROR
   WARNING
   INFO
-
-  @@schema("ingestion")
 }
 
 model User {
-  id                 String                  @id @db.VarChar(191)
+  id                 String                  @id @default(uuid()) @db.Uuid
+  externalSubject    String                  @unique @db.VarChar(191)
   email              String                  @unique @db.VarChar(320)
   displayName        String?                 @db.VarChar(255)
-  role               UserRole                @default(AUDITOR)
   isActive           Boolean                 @default(true)
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
@@ -76,14 +56,14 @@ model User {
   imports            ImportBatch[]           @relation("ImportUploader")
   editedRows         ImportRow[]             @relation("ImportRowEditor")
   acknowledgedIssues ImportValidationIssue[] @relation("IssueAcknowledger")
+  roleAssignments    UserRoleAssignment[]
 
-  @@index([role, isActive])
+  @@index([isActive])
   @@map("users")
-  @@schema("identity")
 }
 
 model FileArtifact {
-  id              String       @id @default(cuid()) @db.VarChar(191)
+  id              String       @id @default(uuid()) @db.Uuid
   artifactType    ArtifactType
   fileName        String       @db.VarChar(255)
   mimeType        String       @db.VarChar(150)
@@ -92,7 +72,7 @@ model FileArtifact {
   storageProvider String       @db.VarChar(40)
   storageKey      String       @unique @db.VarChar(1000)
   retentionClass  String       @db.VarChar(50)
-  createdById     String?      @db.VarChar(191)
+  createdById     String?      @db.Uuid
   createdAt       DateTime     @default(now())
   createdBy       User?        @relation("ArtifactCreator", fields: [createdById], references: [id], onDelete: SetNull)
   importBatch     ImportBatch?
@@ -100,16 +80,15 @@ model FileArtifact {
   @@index([sha256])
   @@index([artifactType, createdAt])
   @@map("file_artifacts")
-  @@schema("artifact")
 }
 
 model ImportBatch {
-  id            String                  @id @default(cuid()) @db.VarChar(191)
+  id            String                  @id @default(uuid()) @db.Uuid
   batchNumber   String                  @unique @db.VarChar(50)
   sourceName    String                  @db.VarChar(200)
   schemaName    String                  @db.VarChar(100)
   schemaVersion String                  @db.VarChar(30)
-  rawArtifactId String                  @unique @db.VarChar(191)
+  rawArtifactId String                  @unique @db.Uuid
   fileSha256    String                  @db.Char(64)
   columnMapping Json
   status        ImportBatchStatus       @default(UPLOADED)
@@ -117,7 +96,7 @@ model ImportBatch {
   validRows     Int                     @default(0)
   invalidRows   Int                     @default(0)
   warningCount  Int                     @default(0)
-  uploadedById  String                  @db.VarChar(191)
+  uploadedById  String                  @db.Uuid
   uploadedAt    DateTime                @default(now())
   submittedAt   DateTime?
   publishedAt   DateTime?
@@ -130,12 +109,11 @@ model ImportBatch {
   @@index([fileSha256])
   @@index([status, uploadedAt])
   @@map("import_batches")
-  @@schema("ingestion")
 }
 
 model ImportRow {
-  id                  String                  @id @default(cuid()) @db.VarChar(191)
-  importBatchId       String                  @db.VarChar(191)
+  id                  String                  @id @default(uuid()) @db.Uuid
+  importBatchId       String                  @db.Uuid
   sourceSheet         String                  @db.VarChar(150)
   sourceRowNumber     Int
   sourceRowId         String?                 @db.VarChar(200)
@@ -144,7 +122,7 @@ model ImportRow {
   status              ImportRowStatus
   warningAcknowledged Boolean                 @default(false)
   excludedReason      String?                 @db.Text
-  editedById          String?                 @db.VarChar(191)
+  editedById          String?                 @db.Uuid
   editedAt            DateTime?
   createdAt           DateTime                @default(now())
   importBatch         ImportBatch             @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
@@ -154,19 +132,18 @@ model ImportRow {
   @@unique([importBatchId, sourceSheet, sourceRowNumber])
   @@index([importBatchId, status])
   @@map("import_rows")
-  @@schema("ingestion")
 }
 
 model ImportValidationIssue {
-  id               String             @id @default(cuid()) @db.VarChar(191)
-  importBatchId    String             @db.VarChar(191)
-  importRowId      String?            @db.VarChar(191)
+  id               String             @id @default(uuid()) @db.Uuid
+  importBatchId    String             @db.Uuid
+  importRowId      String?            @db.Uuid
   severity         ValidationSeverity
   errorCode        String             @db.VarChar(80)
   fieldName        String?            @db.VarChar(100)
   rejectedValue    String?            @db.Text
   message          String             @db.Text
-  acknowledgedById String?            @db.VarChar(191)
+  acknowledgedById String?            @db.Uuid
   acknowledgedAt   DateTime?
   createdAt        DateTime           @default(now())
   importBatch      ImportBatch        @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
@@ -176,12 +153,13 @@ model ImportValidationIssue {
   @@index([importBatchId, severity])
   @@index([importRowId])
   @@map("import_validation_issues")
-  @@schema("ingestion")
 }
 
 model AuthSession {
+  // Intentional exception: this is a 256-bit opaque bearer-session handle,
+  // not a domain/entity identifier. Keeping it non-UUID preserves session-token semantics.
   id               String    @id @db.VarChar(96)
-  userId           String    @db.VarChar(191)
+  userId           String    @db.Uuid
   tokensEncrypted  String    @db.Text
   keycloakSid      String?   @db.VarChar(191)
   keycloakSub      String?   @db.VarChar(191)
@@ -199,12 +177,11 @@ model AuthSession {
   @@index([keycloakSid, revokedAt])
   @@index([revokedAt, expiresAt])
   @@map("auth_sessions")
-  @@schema("identity")
 }
 
 model AuditEvent {
   id         BigInt   @id @default(autoincrement())
-  userId     String?  @db.VarChar(191)
+  userId     String?  @db.Uuid
   action     String   @db.VarChar(100)
   entityType String   @db.VarChar(100)
   entityId   String?  @db.VarChar(191)
@@ -215,11 +192,10 @@ model AuditEvent {
   @@index([userId, occurredAt])
   @@index([entityType, entityId])
   @@map("audit_events")
-  @@schema("audit")
 }
 
 model OutboxEvent {
-  id            String       @id @default(cuid()) @db.VarChar(191)
+  id            String       @id @default(uuid()) @db.Uuid
   topic         String       @db.VarChar(150)
   aggregateType String       @db.VarChar(100)
   aggregateId   String       @db.VarChar(191)
@@ -234,11 +210,87 @@ model OutboxEvent {
 
   @@index([status, availableAt])
   @@map("outbox_events")
-  @@schema("execution")
+}
+
+model Role {
+  id          String               @id @default(uuid()) @db.Uuid
+  code        String               @unique @db.VarChar(80)
+  name        String               @db.VarChar(120)
+  description String?              @db.VarChar(500)
+  isActive    Boolean              @default(true)
+  isSystem    Boolean              @default(false)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  users       UserRoleAssignment[]
+  permissions RolePermission[]
+
+  @@index([isActive, code])
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique @db.VarChar(120)
+  name        String           @db.VarChar(160)
+  description String?          @db.VarChar(500)
+  isActive    Boolean          @default(true)
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+  menus       Menu[]
+
+  @@index([isActive, code])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  createdAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  userId     String   @db.Uuid
+  roleId     String   @db.Uuid
+  assignedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Menu {
+  id                   String      @id @default(uuid()) @db.Uuid
+  code                 String      @unique @db.VarChar(100)
+  label                String      @db.VarChar(160)
+  path                 String?     @db.VarChar(255)
+  parentId             String?     @db.Uuid
+  requiredPermissionId String?     @db.Uuid
+  sortOrder            Int         @default(0)
+  isActive             Boolean     @default(true)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  parent               Menu?       @relation("MenuTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children             Menu[]      @relation("MenuTree")
+  requiredPermission   Permission? @relation(fields: [requiredPermissionId], references: [id], onDelete: Restrict)
+
+  @@index([parentId, sortOrder])
+  @@index([requiredPermissionId])
+  @@index([isActive, sortOrder])
+  @@map("menus")
 }
 
 model CalendarRegion {
-  id          String                @id @default(cuid()) @db.VarChar(191)
+  id          String                @id @default(uuid()) @db.Uuid
   code        String                @unique @db.VarChar(16)
   displayName String                @db.VarChar(120)
   isActive    Boolean               @default(true)
@@ -248,12 +300,11 @@ model CalendarRegion {
 
   @@index([isActive, code])
   @@map("calendar_regions")
-  @@schema("holiday")
 }
 
 model CalendarRegionAlias {
-  id              String         @id @default(cuid()) @db.VarChar(191)
-  regionId        String         @db.VarChar(191)
+  id              String         @id @default(uuid()) @db.Uuid
+  regionId        String         @db.Uuid
   alias           String         @db.VarChar(120)
   normalizedAlias String         @unique @db.VarChar(120)
   isActive        Boolean        @default(true)
@@ -263,5 +314,4 @@ model CalendarRegionAlias {
 
   @@index([regionId, isActive])
   @@map("calendar_region_aliases")
-  @@schema("holiday")
 }

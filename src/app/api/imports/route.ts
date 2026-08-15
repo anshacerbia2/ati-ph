@@ -2,7 +2,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 
-import { getCurrentSession } from "@/auth/session";
+import { PERMISSIONS } from "@/auth/authorization-catalog";
+import { authorizeRoute } from "@/auth/route-access";
 import {
   removeUnregisteredArtifact,
   storeImmutableArtifact,
@@ -18,19 +19,13 @@ import { getServerEnv } from "@/lib/env";
 export const runtime = "nodejs";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const UPLOAD_ROLES = new Set(["ADMINISTRATOR", "OPERATOR"]);
 
 export async function POST(request: Request): Promise<Response> {
-  const session = await getCurrentSession();
-  if (!session) {
-    return Response.json({ error: "Authentication required." }, { status: 401 });
+  const access = await authorizeRoute(PERMISSIONS.IMPORT_CREATE);
+  if (!access.ok) {
+    return access.response;
   }
-  if (!UPLOAD_ROLES.has(session.user.role)) {
-    return Response.json(
-      { error: "Operator or Administrator permission is required." },
-      { status: 403 },
-    );
-  }
+  const { session } = access;
 
   let formData: FormData;
   try {
@@ -78,17 +73,27 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  let regionAliases: Map<string, string>;
+  try {
+    regionAliases = await loadActiveRegionAliases();
+  } catch (error) {
+    console.error("ATI PH calendar-region registry could not be loaded.", error);
+    return Response.json(
+      { error: "Calendar-region registry is unavailable." },
+      { status: 503 },
+    );
+  }
+
+  if (regionAliases.size === 0) {
+    console.error("ATI PH calendar-region registry has no active aliases.");
+    return Response.json(
+      { error: "Calendar-region registry is not configured." },
+      { status: 503 },
+    );
+  }
+
   let parsed;
   try {
-    const regionAliases = await loadActiveRegionAliases();
-    if (regionAliases.size === 0) {
-      console.error("ATI PH calendar-region registry has no active aliases.");
-      return Response.json(
-        { error: "Calendar-region registry is not configured." },
-        { status: 503 },
-      );
-    }
-
     parsed = await parseHolidayWorkbook(bytes, {
       regionAliases,
       rejectSampleRows: process.env.NODE_ENV === "production",

@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Phase 0 auth foundation and Phase 1 ingestion slice implemented; remaining gates stay open |
-| Version | 0.3.5 |
+| Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
+| Version | 0.3.8 |
 | Date | 2026-08-15 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -114,11 +114,12 @@ Completed in the first Phase 1 vertical slice:
 - Multi-region normalization with `Day` and `Tag` explicitly ignored as authoritative input
 - Validation summary in the ATI One-aligned dashboard
 - Audit event and transactional `ImportBatchValidated` outbox event
-- Prisma migration `20260814220557_governed_import_foundation`
+- Single Prisma baseline migration `20260815180000_initial_foundation` with explicit module schema namespaces
+- Database-managed calendar-region registry used by runtime import resolution
+- Administrator-only region and alias create, rename, activate, and deactivate controls with transactional audit events
 
 Still pending before the Phase 1 exit gate is complete:
 
-- Database-managed calendar-region and alias administration
 - Full validation-report download and authorized raw-artifact download
 - Controlled staging corrections and warning acknowledgement
 - Maker-checker approval request and decision
@@ -153,6 +154,10 @@ Still pending before the Phase 1 exit gate is complete:
 - Opaque `ati_ph_session` cookie and encrypted server-side session records
 - ATI One internal-app proxy proof validation and `/apps/ph-notification/app` base-path handling
 - Application-owned RBAC for Administrator, Operator, Approver, and Auditor
+- Keycloak remains the identity and authentication authority; ATI PH stores only the local user projection plus application role assignments
+- Internal application entity primary/foreign keys use native PostgreSQL UUID; the verified Keycloak `sub` is stored as `users.externalSubject` and is never used as an ATI PH primary key
+- Role, permission, user-role, role-permission, and menu visibility records are physically stored in PostgreSQL `public` and logically owned by the Authorization module
+- Backend authorization is permission-based; menu visibility consumes permissions and never acts as an authorization boundary
 - Secure server-side authorization checks on every protected read and mutation
 - Audit events
 - Transactional outbox baseline

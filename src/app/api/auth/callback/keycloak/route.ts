@@ -9,7 +9,6 @@ import {
   getOidcConfiguration,
   oidc,
 } from "@/auth/oidc";
-import { resolveUserRole } from "@/auth/roles";
 import { createSession } from "@/auth/session";
 import {
   LOGIN_COOKIE_NAME,
@@ -64,20 +63,17 @@ export async function GET(request: NextRequest) {
       env.KEYCLOAK_CLIENT_ID,
     );
     const claims = claimsSchema.parse(tokens.claims());
-    const role = resolveUserRole(claims, env);
 
     const user = await db.user.upsert({
-      where: { id: claims.sub },
+      where: { externalSubject: claims.sub },
       create: {
-        id: claims.sub,
+        externalSubject: claims.sub,
         email: claims.email.toLowerCase(),
         displayName: claims.name ?? claims.preferred_username,
-        role,
       },
       update: {
         email: claims.email.toLowerCase(),
         displayName: claims.name ?? claims.preferred_username,
-        role,
       },
     });
     const session = await createSession(

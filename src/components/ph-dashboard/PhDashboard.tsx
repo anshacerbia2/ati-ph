@@ -1,5 +1,6 @@
 import { mountedPath } from "@/config/app";
 import { AtiIcon } from "@/components/ph-dashboard/AtiIcon";
+import { CalendarRegionAdmin } from "@/components/ph-dashboard/CalendarRegionAdmin";
 import { dashboardStats } from "@/components/ph-dashboard/data";
 import { HolidayTable } from "@/components/ph-dashboard/HolidayTable";
 import { ImportWorkspace } from "@/components/ph-dashboard/ImportWorkspace";
@@ -24,14 +25,22 @@ const highlights = [
 
 export function PhDashboard({
   userName,
-  role,
+  roles,
+  permissions,
   skillUrl,
 }: {
   userName: string;
-  role: string;
+  roles: string[];
+  permissions: string[];
   skillUrl: string;
 }) {
-  const canUpload = role === "ADMINISTRATOR" || role === "OPERATOR";
+  const permissionSet = new Set(permissions);
+  const canUpload = permissionSet.has("import.create");
+  const canManageRegions = permissionSet.has("calendar_region.manage");
+  const roleLabel =
+    roles.length > 0
+      ? roles.map((role) => role.toLowerCase()).join(", ")
+      : "no application role";
 
   return (
     <main className="dashboard-shell">
@@ -41,7 +50,7 @@ export function PhDashboard({
           <span>Public Holiday operations</span>
         </div>
         <div className="session-actions">
-          <span className="session-user">{userName} · {role.toLowerCase()}</span>
+          <span className="session-user">{userName} · {roleLabel}</span>
           <form action={mountedPath("/api/auth/logout")} method="post">
             <button className="toolbar-link" type="submit">End session</button>
           </form>
@@ -66,12 +75,14 @@ export function PhDashboard({
 
       <ImportWorkspace canUpload={canUpload} />
 
+      {canManageRegions ? <CalendarRegionAdmin /> : null}
+
       <section className="stat-grid" aria-label="Notification summary">
         {dashboardStats.map((stat) => (
           <article className="ati-card stat-card" key={stat.label}>
             <p className="micro-label">{stat.label}</p>
             <strong>{stat.value}</strong>
-            <span className={stat.tone ? `delta-${stat.tone}` : ""}>{stat.delta}</span>
+            <span className={stat.tone ? "delta-" + stat.tone : ""}>{stat.delta}</span>
           </article>
         ))}
       </section>

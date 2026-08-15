@@ -4,9 +4,33 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertSafeXlsxPackage,
-  parseHolidayWorkbook,
+  parseHolidayWorkbook as parseHolidayWorkbookRaw,
   WorkbookContractError,
 } from "@/imports/holiday-workbook";
+
+const TEST_REGION_ALIASES = new Map<string, string>([
+  ["australia", "AU"],
+  ["au", "AU"],
+  ["indonesia", "ID"],
+  ["id", "ID"],
+  ["united kingdom", "GB"],
+  ["uk", "GB"],
+  ["gb", "GB"],
+  ["south africa", "ZA"],
+  ["za", "ZA"],
+  ["north america", "NA"],
+  ["na", "NA"],
+  ["new zealand", "NZ"],
+  ["nz", "NZ"],
+  ["singapore", "SG"],
+  ["sg", "SG"],
+]);
+
+async function parseHolidayWorkbook(bytes: Uint8Array) {
+  return parseHolidayWorkbookRaw(bytes, {
+    regionAliases: TEST_REGION_ALIASES,
+  });
+}
 
 describe("holiday workbook import", () => {
   it("maps legacy headers, normalizes regions, and ignores derived fields", async () => {

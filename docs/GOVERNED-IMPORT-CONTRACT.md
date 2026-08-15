@@ -45,7 +45,8 @@ Unknown columns remain in `rawData`. More than one source column mapping to the 
 
 - Whitespace is trimmed without changing immutable raw evidence
 - Comma, semicolon, and newline-separated legacy regions are split
-- Region aliases resolve to canonical codes (`AU`, `ID`, `GB`, `ZA`, `NA`, `NZ`, `SG` in the initial registry)
+- Region aliases resolve through the database-managed calendar-region registry; only active aliases owned by active regions are accepted
+- The bootstrap registry contains canonical codes `AU`, `ID`, `GB`, `ZA`, `NA`, `NZ`, and `SG`; administrators can govern aliases without redeploying the application
 - Duplicate region codes within one source row are collapsed
 - Holiday names retain display text and also receive a normalized duplicate-matching value
 - Typed Excel dates and ISO `YYYY-MM-DD` text are accepted
@@ -111,7 +112,6 @@ This is an ingestion result, not business-owner sign-off on the holidays themsel
 ## Remaining Phase 1 work
 
 - Governed metadata sheet/named-range detection for schema name, version, year, source, and generation time
-- Database-managed region/alias administration
 - Authorized artifact and validation-report download
 - Staging correction, exclusion reason, and warning acknowledgement
 - Maker-checker submission and approval

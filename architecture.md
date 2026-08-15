@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Phase 0 auth foundation and Phase 1 ingestion slice implemented; remaining gates stay open |
-| Version | 0.3.5 |
+| Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
+| Version | 0.3.8 |
 | Date | 2026-08-15 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -23,7 +23,7 @@ This is deliberately not a microservice architecture and not a generic workflow 
 
 The Public Holiday codebase, database, worker, authorization rules, and business operations remain independently owned. Its initial browser delivery is through ATI One's internal same-origin proxy and iframe path. ATI One does not participate in Public Holiday business logic, but it is the initial browser entry point and delivery gateway
 
-As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID and client credential configuration as ATI One. It still creates its own namespaced application session and resolves its own roles. This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
+As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID and client credential configuration as ATI One. It still creates its own namespaced application session. Keycloak is the identity and authentication authority only: ATI PH does not derive business authorization from Keycloak realm roles. Application roles, permissions, and menu visibility are resolved from ATI PH-owned PostgreSQL records. This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
 
 ## 2. Context
 
@@ -62,7 +62,7 @@ flowchart TD
 | Web UI and HTTP boundary | Next.js 16.3.1 App Router with React Server Components and Route Handlers |
 | UI design contract | ATI One PH Notification mockup and locally owned ATI design-system tokens/primitives; no runtime import from `ai-portal` |
 | Language | TypeScript in strict mode |
-| Persistence | PostgreSQL with Prisma migrations and explicit schema namespaces |
+| Persistence | PostgreSQL with Prisma migrations in one physical `public` schema; module ownership is enforced in application code and contracts |
 | Background execution | Separate long-running worker process built from the same repository and domain packages |
 | Identity protocol | OpenID Connect Authorization Code Flow with PKCE S256 using `openid-client` |
 | Browser session | Opaque host-only cookie referencing an encrypted server-side database session |
@@ -106,6 +106,7 @@ The upstream deployment remains independently operable as a web and worker workl
 
 ### 5.1 Domain responsibilities
 
+- Govern canonical calendar-region codes and approved source aliases
 - Publish validated holiday occurrences
 - Expand a holiday period into individual dates
 - Classify each occurrence date as weekday or weekend
@@ -137,6 +138,17 @@ notification_run
 
 `client`, `service_team`, and `contact` remain local in the first release. They can later integrate with Organization Platform or CRM, but they are not moved until an authoritative upstream ownership model exists
 
+### 5.3 Calendar-region governance
+
+- A calendar-region code is canonical and immutable after creation
+- Source aliases use one normalized lookup-key rule and are globally unique across regions
+- Administration uses activation and deactivation rather than hard delete
+- Runtime import resolution accepts only an active alias whose owning region is also active
+- Every active region retains an active canonical alias equal to its region code
+- Region and alias mutations commit their audit event in the same database transaction
+- Seed data provides bootstrap reference values only; it is not schema migration logic
+- The legacy acceptance workbook continues to exercise Australia, Indonesia, New Zealand, North America, South Africa, and United Kingdom source values, including multi-region rows
+
 ## 6. Reusable Engine Boundaries
 
 ### 6.1 Governed Import Engine
@@ -156,12 +168,13 @@ Turn an uploaded external file into validated staging data without allowing unva
 - `Holiday_Master` headers are mapped by approved aliases and column order is ignored
 - Raw rows and normalized staging rows are stored separately
 - Multiple legacy regions are split and resolved to canonical region codes
+- Region resolution reads active aliases from the Public Holiday calendar-region registry; inactive aliases and inactive regions fail resolution
 - Typed Excel dates and ISO dates are accepted; formula cells cannot provide authoritative fields
 - `Day` and `Tag` remain raw evidence and are recomputed only during canonical publication
 - Batch, row, issue, audit, and successful `ImportBatchValidated` outbox records are committed atomically
 - Invalid batches remain reviewable but cannot emit the validated event
 
-The current storage adapter is appropriate for local development. Production must mount `ARTIFACT_STORAGE_DIR` on durable encrypted storage or replace the adapter without changing the import contract. Approval, staging correction, canonical holiday publication, artifact download, and validation-report export remain later Phase 1 slices.
+The current storage adapter is appropriate for local development. Production must mount `ARTIFACT_STORAGE_DIR` on durable encrypted storage or replace the adapter without changing the import contract. Calendar-region and alias administration is now database-managed and Administrator-only. Approval, staging correction, canonical holiday publication, artifact download, and validation-report export remain later Phase 1 slices.
 
 The supplied legacy workbook was used as an executable fixture: 25 holiday rows were detected, 22 production-like rows passed, and the three `(SAMPLE)` rows with `xxx` regions were blocked. See `docs/GOVERNED-IMPORT-CONTRACT.md`.
 
@@ -403,21 +416,40 @@ getResourceHistory(resourceType, resourceId)
 
 Each table has one owner module. Other modules access it only through a module interface, query projection, or emitted event
 
-### 7.2 Initial schema namespaces
+### 7.2 Physical PostgreSQL layout
 
-| PostgreSQL schema | Owner |
+ATI PH uses one PostgreSQL database and one physical PostgreSQL schema: `public`. PostgreSQL schemas are not used as module namespaces in this modular monolith
+
+Logical ownership remains explicit even though the tables are physically colocated:
+
+| Table family | Logical owner |
 | --- | --- |
-| `holiday` | Public Holiday Workflow |
-| `ingestion` | Governed Import |
-| `approval` | Approval |
-| `communication` | Notification |
-| `execution` | Scheduling and Execution |
-| `artifact` | Artifact |
-| `audit` | Audit |
+| `users`, `auth_sessions` | Application Identity and Session |
+| `roles`, `permissions`, `user_roles`, `role_permissions`, `menus` | Authorization |
+| `calendar_regions`, `calendar_region_aliases` and future holiday canonical tables | Public Holiday Workflow |
+| `import_batches`, `import_rows`, `import_validation_issues` | Governed Import |
+| `file_artifacts` | Artifact |
+| `audit_events` | Audit |
+| `outbox_events` | Scheduling and Execution |
 
-The application may initially use one PostgreSQL database. Schema separation is a code ownership boundary, not a claim that every schema is independently deployable
+Module boundaries are code-ownership and contract boundaries, not nested database schemas. Cross-module mutation rules below still apply
 
-### 7.3 Cross-module access rule
+Internal domain/entity PK/FK columns use native PostgreSQL `uuid`. The application-local `users.id` is a UUID generated by ATI PH. The verified Keycloak OIDC `sub` is stored separately as unique `users.externalSubject`
+
+The deliberate identifier exceptions are non-domain identifiers: the opaque 256-bit application session handle remains a string bearer token, audit `entityId` and outbox `aggregateId` remain polymorphic strings, and business/source codes remain strings
+
+### 7.3 Identity and authorization boundary
+
+- Keycloak authenticates the user and supplies the verified OIDC subject and identity claims
+- `public.users` is an application-local projection with its own UUID primary key; the verified Keycloak subject is stored in unique `externalSubject`; it stores no password, MFA secret, or authentication credential
+- `public.user_roles` assigns one or more ATI PH roles to that local user
+- Roles aggregate permissions through `public.role_permissions`
+- Protected backend operations authorize on permission codes, never on menu visibility
+- `public.menus` may hide or expose navigation entries based on a required permission, but a menu record never grants backend access
+- Login synchronizes identity profile fields only and does not overwrite local authorization
+- The bootstrap CLI may grant the first application role only after that user has authenticated once and therefore exists in `public.users`
+
+### 7.4 Cross-module access rule
 
 Allowed:
 
@@ -474,7 +506,7 @@ flowchart TD
 
 - One application uses the capability
 - One codebase and database
-- Explicit package and schema boundary
+- Explicit package and module ownership boundary
 - No external API commitment
 
 ### Stage 2 — Shared internal capability

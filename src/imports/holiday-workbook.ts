@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
 
+import { normalizeLookupKey } from "@/lib/lookup-key";
 import {
   HOLIDAY_IMPORT_SCHEMA_NAME,
   HOLIDAY_SOURCE_SHEET,
@@ -47,24 +48,6 @@ const HEADER_ALIASES = new Map<string, CanonicalField>([
   ["notes", "notes"],
 ]);
 
-export const DEFAULT_REGION_ALIASES = new Map<string, string>([
-  ["australia", "AU"],
-  ["au", "AU"],
-  ["indonesia", "ID"],
-  ["id", "ID"],
-  ["united kingdom", "GB"],
-  ["uk", "GB"],
-  ["gb", "GB"],
-  ["south africa", "ZA"],
-  ["za", "ZA"],
-  ["north america", "NA"],
-  ["na", "NA"],
-  ["new zealand", "NZ"],
-  ["nz", "NZ"],
-  ["singapore", "SG"],
-  ["sg", "SG"],
-]);
-
 export class WorkbookContractError extends Error {
   constructor(message: string) {
     super(message);
@@ -107,10 +90,10 @@ export async function assertSafeXlsxPackage(bytes: Uint8Array): Promise<void> {
 export async function parseHolidayWorkbook(
   bytes: Uint8Array,
   options: {
-    regionAliases?: ReadonlyMap<string, string>;
+    regionAliases: ReadonlyMap<string, string>;
     rejectSampleRows?: boolean;
     maximumPeriodDays?: number;
-  } = {},
+  },
 ): Promise<ParsedHolidayWorkbook> {
   await assertSafeXlsxPackage(bytes);
 
@@ -159,7 +142,7 @@ export async function parseHolidayWorkbook(
     };
   }
 
-  const aliases = options.regionAliases ?? DEFAULT_REGION_ALIASES;
+  const aliases = options.regionAliases;
   const maximumPeriodDays = options.maximumPeriodDays ?? 31;
   const rows: ParsedImportRow[] = [];
   const rowIssues = new Map<number, ImportIssue[]>();
@@ -302,7 +285,7 @@ function normalizeHolidayRow(
   const sourceRegions = splitRegions(regionValue);
   const regionCodes: string[] = [];
   for (const region of sourceRegions) {
-    const code = regionAliases.get(normalizeRegion(region));
+    const code = regionAliases.get(normalizeLookupKey(region));
     if (!code) {
       issues.push({
         severity: "ERROR",
@@ -618,10 +601,6 @@ function splitRegions(value: string): string[] {
 
 function normalizeHeader(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
-function normalizeRegion(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function normalizeHolidayName(value: string): string {

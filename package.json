@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "worker": "tsx src/worker/main.ts",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "authz:grant": "tsx scripts/grant-role.ts"
   },
   "engines": {
     "node": ">=20.19.0"

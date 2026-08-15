@@ -15,9 +15,6 @@ const serverEnvSchema = z.object({
     .min(5)
     .max(300)
     .default(30),
-  KEYCLOAK_ADMIN_ROLES: z.string().default("ati-ph-administrator"),
-  KEYCLOAK_OPERATOR_ROLES: z.string().default("ati-ph-operator"),
-  KEYCLOAK_APPROVER_ROLES: z.string().default("ati-ph-approver"),
   TRUST_ATI_ONE_PROXY: z.enum(["true", "false"]).default("false"),
   ATI_ONE_PROXY_SECRET: z.string().min(32).optional(),
   ATI_ONE_RETURN_URL: z.url().default("http://localhost:3000/"),
