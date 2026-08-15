@@ -13,15 +13,24 @@ const db = new PrismaClient();
 const regions = [
   { code: "AU", displayName: "Australia", aliases: ["Australia", "AU"] },
   { code: "ID", displayName: "Indonesia", aliases: ["Indonesia", "ID"] },
-  { code: "GB", displayName: "United Kingdom", aliases: ["United Kingdom", "UK", "GB"] },
+  {
+    code: "GB",
+    displayName: "United Kingdom",
+    aliases: ["United Kingdom", "UK", "GB"],
+  },
   { code: "ZA", displayName: "South Africa", aliases: ["South Africa", "ZA"] },
-  { code: "NA", displayName: "North America", aliases: ["North America", "NA"] },
+  {
+    code: "NA",
+    displayName: "North America",
+    aliases: ["North America", "NA"],
+  },
   { code: "NZ", displayName: "New Zealand", aliases: ["New Zealand", "NZ"] },
   { code: "SG", displayName: "Singapore", aliases: ["Singapore", "SG"] },
 ] as const;
 
 async function seedAuthorization(): Promise<void> {
   const roles = new Map<string, { id: string }>();
+
   for (const definition of SYSTEM_ROLES) {
     const role = await db.role.upsert({
       where: { code: definition.code },
@@ -31,13 +40,18 @@ async function seedAuthorization(): Promise<void> {
         description: definition.description,
         isSystem: true,
       },
-      update: {},
+      update: {
+        name: definition.name,
+        description: definition.description,
+        isSystem: true,
+      },
       select: { id: true },
     });
     roles.set(definition.code, role);
   }
 
   const permissions = new Map<string, { id: string }>();
+
   for (const definition of SYSTEM_PERMISSIONS) {
     const permission = await db.permission.upsert({
       where: { code: definition.code },
@@ -47,7 +61,11 @@ async function seedAuthorization(): Promise<void> {
         description: definition.description,
         isSystem: true,
       },
-      update: {},
+      update: {
+        name: definition.name,
+        description: definition.description,
+        isSystem: true,
+      },
       select: { id: true },
     });
     permissions.set(definition.code, permission);
@@ -83,26 +101,59 @@ async function seedAuthorization(): Promise<void> {
     }
   }
 
+  const menus = new Map<string, { id: string }>();
+
   for (const definition of SYSTEM_MENUS) {
-    const requiredPermission = permissions.get(
-      definition.requiredPermission,
-    );
-    if (!requiredPermission) {
+    const requiredPermission = definition.requiredPermission
+      ? permissions.get(definition.requiredPermission)
+      : undefined;
+
+    if (definition.requiredPermission && !requiredPermission) {
       throw new Error(
         `Missing menu permission ${definition.requiredPermission}.`,
       );
     }
 
-    await db.menu.upsert({
+    const menu = await db.menu.upsert({
       where: { code: definition.code },
       create: {
         code: definition.code,
         label: definition.label,
         path: definition.path,
-        requiredPermissionId: requiredPermission.id,
+        requiredPermissionId: requiredPermission?.id,
         sortOrder: definition.sortOrder,
       },
-      update: {},
+      update: {
+        label: definition.label,
+        path: definition.path ?? null,
+        requiredPermissionId: requiredPermission?.id ?? null,
+        sortOrder: definition.sortOrder,
+      },
+      select: { id: true },
+    });
+
+    menus.set(definition.code, menu);
+  }
+
+  for (const definition of SYSTEM_MENUS) {
+    const menu = menus.get(definition.code);
+    if (!menu) {
+      throw new Error(`Missing seeded menu ${definition.code}.`);
+    }
+
+    const parent = definition.parentCode
+      ? menus.get(definition.parentCode)
+      : undefined;
+
+    if (definition.parentCode && !parent) {
+      throw new Error(
+        `Missing menu parent ${definition.parentCode} for ${definition.code}.`,
+      );
+    }
+
+    await db.menu.update({
+      where: { id: menu.id },
+      data: { parentId: parent?.id ?? null },
     });
   }
 }

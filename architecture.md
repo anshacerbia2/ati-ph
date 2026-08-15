@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.8 |
+| Version | 0.3.9 |
 | Date | 2026-08-15 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -69,7 +69,7 @@ flowchart TD
 | Input and output | Governed XLSX with immutable source and generated artifacts |
 | Deployment | Self-hosted standalone Node.js output behind the ATI One internal-app proxy |
 
-Next.js owns the browser-facing UI, Route Handlers, and server-rendered application boundary. Durable scheduling, retries, outbox relay, workbook generation, and email delivery do not execute as unawaited work inside a web request. They run in the dedicated worker process
+Next.js owns the browser-facing UI, Route Handlers, and server-rendered application boundary. The authenticated ATI PH application shell reads active menu records from PostgreSQL, filters them by the user's ATI PH permissions, and renders only compact in-app route navigation from that governed catalog. ATI One owns the surrounding global rail, top bar, app tabs, product header, and user menu, so ATI PH must not duplicate that portal chrome inside its internal-app frame. Menu visibility is presentation only and never replaces server-side page or API permission enforcement. Durable scheduling, retries, outbox relay, workbook generation, and email delivery do not execute as unawaited work inside a web request. They run in the dedicated worker process
 
 ### 3.2 Initial deployment boundary
 

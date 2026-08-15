@@ -29,9 +29,11 @@ async function fetchCalendarRegions(): Promise<CalendarRegion[]> {
     cache: "no-store",
   });
   const payload = (await response.json()) as RegionResponse;
+
   if (!response.ok) {
     throw new Error(payload.error ?? "Could not load calendar regions.");
   }
+
   return payload.regions;
 }
 
@@ -41,18 +43,24 @@ function loadErrorMessage(error: unknown): string {
     : "Could not load calendar regions.";
 }
 
-export function CalendarRegionAdmin() {
+export function CalendarRegionAdmin({
+  canManage,
+}: {
+  canManage: boolean;
+}) {
   const [regions, setRegions] = useState<CalendarRegion[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [showCreate, setShowCreate] = useState(false);
   const [code, setCode] = useState("");
   const [displayName, setDisplayName] = useState("");
 
   async function refresh() {
     setLoading(true);
     setError(undefined);
+
     try {
       setRegions(await fetchCalendarRegions());
     } catch (loadError) {
@@ -70,6 +78,7 @@ export function CalendarRegionAdmin() {
         if (cancelled) {
           return;
         }
+
         setRegions(nextRegions);
         setLoading(false);
       })
@@ -77,6 +86,7 @@ export function CalendarRegionAdmin() {
         if (cancelled) {
           return;
         }
+
         setError(loadErrorMessage(loadError));
         setLoading(false);
       });
@@ -96,6 +106,7 @@ export function CalendarRegionAdmin() {
     setBusyKey(key);
     setError(undefined);
     setNotice(undefined);
+
     try {
       const response = await fetch(mountedPath(url), {
         method,
@@ -103,9 +114,13 @@ export function CalendarRegionAdmin() {
         body: JSON.stringify(body),
       });
       const payload = (await response.json()) as { error?: string };
+
       if (!response.ok) {
-        throw new Error(payload.error ?? "Calendar-region update failed.");
+        throw new Error(
+          payload.error ?? "Calendar-region update failed.",
+        );
       }
+
       setNotice(successMessage);
       await refresh();
       return true;
@@ -121,8 +136,11 @@ export function CalendarRegionAdmin() {
     }
   }
 
-  async function createRegion(event: React.FormEvent<HTMLFormElement>) {
+  async function createRegion(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
+
     const created = await mutate(
       "create-region",
       "/api/admin/calendar-regions",
@@ -130,72 +148,108 @@ export function CalendarRegionAdmin() {
       { code, displayName },
       `Region ${code.trim().toUpperCase()} created.`,
     );
+
     if (created) {
       setCode("");
       setDisplayName("");
+      setShowCreate(false);
     }
   }
 
   return (
-    <section className="ati-card region-admin" aria-labelledby="region-admin-heading">
+    <section
+      className="ati-card region-admin"
+      aria-labelledby="region-admin-heading"
+    >
       <div className="region-admin__header">
         <div>
           <p className="eyebrow">Calendar authority</p>
-          <h2 id="region-admin-heading">Calendar regions and source aliases</h2>
+          <h2 id="region-admin-heading">
+            Calendar regions
+          </h2>
           <p>
-            Imports resolve only active aliases owned by active regions. Region
-            codes are canonical and are never edited after creation.
+            Canonical region codes and the approved source values that
+            workbook imports are allowed to resolve.
           </p>
         </div>
-        <span className="ati-badge ati-badge--brand">Administrator only</span>
+
+        {canManage ? (
+          <button
+            className="ati-btn ati-btn--secondary"
+            onClick={() => setShowCreate((value) => !value)}
+            type="button"
+          >
+            {showCreate ? "Cancel" : "Add region"}
+          </button>
+        ) : (
+          <span className="ati-badge ati-badge--brand">
+            Read only
+          </span>
+        )}
       </div>
 
-      <form className="region-create-form" onSubmit={createRegion}>
-        <label>
-          <span>Code</span>
-          <input
-            maxLength={16}
-            onChange={(event) => setCode(event.target.value)}
-            placeholder="GB"
-            required
-            value={code}
-          />
-        </label>
-        <label>
-          <span>Display name</span>
-          <input
-            maxLength={120}
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder="United Kingdom"
-            required
-            value={displayName}
-          />
-        </label>
-        <button
-          className="ati-btn"
-          disabled={busyKey === "create-region"}
-          type="submit"
+      {showCreate ? (
+        <form
+          className="region-create-form region-create-form--compact"
+          onSubmit={createRegion}
         >
-          {busyKey === "create-region" ? "Creating…" : "Add region"}
-        </button>
-      </form>
+          <label>
+            <span>Code</span>
+            <input
+              maxLength={16}
+              onChange={(event) => setCode(event.target.value)}
+              placeholder="GB"
+              required
+              value={code}
+            />
+          </label>
 
-      {error ? <p className="form-notice form-notice--error">{error}</p> : null}
-      {notice ? <p className="form-notice form-notice--success">{notice}</p> : null}
+          <label>
+            <span>Display name</span>
+            <input
+              maxLength={120}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="United Kingdom"
+              required
+              value={displayName}
+            />
+          </label>
+
+          <button
+            className="ati-btn"
+            disabled={busyKey === "create-region"}
+            type="submit"
+          >
+            {busyKey === "create-region"
+              ? "Creating…"
+              : "Create region"}
+          </button>
+        </form>
+      ) : null}
+
+      {error ? (
+        <p className="form-notice form-notice--error">{error}</p>
+      ) : null}
+
+      {notice ? (
+        <p className="form-notice form-notice--success">{notice}</p>
+      ) : null}
 
       {loading ? (
-        <p className="region-empty">Loading governed region registry…</p>
+        <p className="region-empty">
+          Loading governed region registry…
+        </p>
       ) : regions.length === 0 ? (
         <p className="region-empty">
-          No regions configured. Imports will remain unavailable until an
-          administrator creates at least one active alias.
+          No calendar regions are configured yet.
         </p>
       ) : (
-        <div className="region-list">
+        <div className="region-list region-list--management">
           {regions.map((region) => (
             <RegionEditor
               busyKey={busyKey}
-              key={`${region.id}:${region.displayName}`}
+              canManage={canManage}
+              key={region.id}
               mutate={mutate}
               region={region}
             />
@@ -209,10 +263,12 @@ export function CalendarRegionAdmin() {
 function RegionEditor({
   region,
   busyKey,
+  canManage,
   mutate,
 }: {
   region: CalendarRegion;
   busyKey?: string;
+  canManage: boolean;
   mutate: (
     key: string,
     url: string,
@@ -221,13 +277,31 @@ function RegionEditor({
     successMessage: string,
   ) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState(false);
   const [name, setName] = useState(region.displayName);
   const [newAlias, setNewAlias] = useState("");
 
   const baseUrl = `/api/admin/calendar-regions/${region.id}`;
 
-  async function addAlias(event: React.FormEvent<HTMLFormElement>) {
+  async function saveRegionName() {
+    const saved = await mutate(
+      `region-name-${region.id}`,
+      baseUrl,
+      "PATCH",
+      { displayName: name },
+      `${region.code} display name updated.`,
+    );
+
+    if (saved) {
+      setEditing(false);
+    }
+  }
+
+  async function addAlias(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
+
     const created = await mutate(
       `alias-create-${region.id}`,
       `${baseUrl}/aliases`,
@@ -235,106 +309,209 @@ function RegionEditor({
       { alias: newAlias },
       `Alias "${newAlias.trim()}" added to ${region.code}.`,
     );
+
     if (created) {
       setNewAlias("");
     }
   }
 
   return (
-    <article className={`region-card ${region.isActive ? "" : "region-card--inactive"}`}>
-      <div className="region-card__heading">
-        <div className="region-code-block">
-          <strong>{region.code}</strong>
-          <span
-            className={`ati-badge ${region.isActive ? "ati-badge--success" : "ati-badge--warning"}`}
-          >
-            {region.isActive ? "Active" : "Inactive"}
-          </span>
-        </div>
-        <button
-          className="ati-btn ati-btn--secondary"
-          disabled={busyKey === `region-toggle-${region.id}`}
-          onClick={() =>
-            void mutate(
-              `region-toggle-${region.id}`,
-              baseUrl,
-              "PATCH",
-              { isActive: !region.isActive },
-              `${region.code} ${region.isActive ? "deactivated" : "reactivated"}.`,
-            )
-          }
-          type="button"
-        >
-          {region.isActive ? "Deactivate" : "Reactivate"}
-        </button>
-      </div>
+    <article
+      className={
+        region.isActive
+          ? "region-management-card"
+          : "region-management-card region-management-card--inactive"
+      }
+    >
+      <div className="region-management-card__summary">
+        <div className="region-summary-main">
+          <div className="region-code-block">
+            <strong>{region.code}</strong>
+            <span
+              className={
+                region.isActive
+                  ? "ati-badge ati-badge--success"
+                  : "ati-badge ati-badge--warning"
+              }
+            >
+              {region.isActive ? "Active" : "Inactive"}
+            </span>
+          </div>
 
-      <div className="region-name-editor">
-        <label>
-          <span>Display name</span>
-          <input
-            maxLength={120}
-            onChange={(event) => setName(event.target.value)}
-            value={name}
-          />
-        </label>
-        <button
-          className="ati-btn ati-btn--secondary"
-          disabled={
-            !name.trim() ||
-            name.trim() === region.displayName ||
-            busyKey === `region-name-${region.id}`
-          }
-          onClick={() =>
-            void mutate(
-              `region-name-${region.id}`,
-              baseUrl,
-              "PATCH",
-              { displayName: name },
-              `${region.code} display name updated.`,
-            )
-          }
-          type="button"
-        >
-          Save name
-        </button>
-      </div>
-
-      <div className="alias-section">
-        <div className="alias-section__title">
-          <h3>Approved source aliases</h3>
-          <span>{region.aliases.length}</span>
-        </div>
-        <div className="alias-list">
-          {region.aliases.map((alias) => (
-            <AliasEditor
-              alias={alias}
-              busyKey={busyKey}
-              key={`${alias.id}:${alias.alias}`}
-              mutate={mutate}
-              region={region}
-            />
-          ))}
+          <div className="region-summary-copy">
+            <strong>{region.displayName}</strong>
+            <span>
+              {region.aliases.length} approved source{" "}
+              {region.aliases.length === 1 ? "alias" : "aliases"}
+            </span>
+          </div>
         </div>
 
-        <form className="alias-create-form" onSubmit={addAlias}>
-          <input
-            aria-label={`New alias for ${region.code}`}
-            maxLength={120}
-            onChange={(event) => setNewAlias(event.target.value)}
-            placeholder="Add approved source value"
-            required
-            value={newAlias}
-          />
-          <button
-            className="ati-btn ati-btn--secondary"
-            disabled={busyKey === `alias-create-${region.id}`}
-            type="submit"
-          >
-            Add alias
-          </button>
-        </form>
+        {canManage ? (
+          <div className="region-summary-actions">
+            <button
+              className="toolbar-link"
+              onClick={() => {
+                setName(region.displayName);
+                setEditing((value) => !value);
+              }}
+              type="button"
+            >
+              {editing ? "Close" : "Manage"}
+            </button>
+
+            <button
+              className="ati-btn ati-btn--secondary"
+              disabled={
+                busyKey === `region-toggle-${region.id}`
+              }
+              onClick={() =>
+                void mutate(
+                  `region-toggle-${region.id}`,
+                  baseUrl,
+                  "PATCH",
+                  { isActive: !region.isActive },
+                  `${region.code} ${
+                    region.isActive
+                      ? "deactivated"
+                      : "reactivated"
+                  }.`,
+                )
+              }
+              type="button"
+            >
+              {region.isActive ? "Deactivate" : "Reactivate"}
+            </button>
+          </div>
+        ) : null}
       </div>
+
+      <div className="region-alias-summary">
+        {region.aliases.map((alias) => {
+          const canonical =
+            alias.normalizedAlias === region.code.toLowerCase();
+
+          return (
+            <span
+              className={
+                alias.isActive
+                  ? "region-alias-chip"
+                  : "region-alias-chip region-alias-chip--inactive"
+              }
+              key={alias.id}
+            >
+              <span>{alias.alias}</span>
+              {canonical ? (
+                <small>Canonical</small>
+              ) : !alias.isActive ? (
+                <small>Inactive</small>
+              ) : null}
+            </span>
+          );
+        })}
+      </div>
+
+      {editing && canManage ? (
+        <div className="region-management-editor">
+          <div className="region-editor-section">
+            <div className="region-editor-section__heading">
+              <div>
+                <h3>Region details</h3>
+                <p>
+                  The code is canonical and cannot be changed.
+                </p>
+              </div>
+            </div>
+
+            <div className="region-detail-grid">
+              <label>
+                <span>Code</span>
+                <input
+                  disabled
+                  value={region.code}
+                />
+              </label>
+
+              <label>
+                <span>Display name</span>
+                <input
+                  maxLength={120}
+                  onChange={(event) =>
+                    setName(event.target.value)
+                  }
+                  value={name}
+                />
+              </label>
+
+              <button
+                className="ati-btn ati-btn--secondary"
+                disabled={
+                  !name.trim() ||
+                  name.trim() === region.displayName ||
+                  busyKey === `region-name-${region.id}`
+                }
+                onClick={() => void saveRegionName()}
+                type="button"
+              >
+                Save name
+              </button>
+            </div>
+          </div>
+
+          <div className="region-editor-section">
+            <div className="region-editor-section__heading">
+              <div>
+                <h3>Approved source aliases</h3>
+                <p>
+                  These are the exact source values allowed to resolve
+                  to {region.code}.
+                </p>
+              </div>
+            </div>
+
+            <div className="alias-management-list">
+              {region.aliases.map((alias) => (
+                <AliasEditor
+                  alias={alias}
+                  busyKey={busyKey}
+                  key={alias.id}
+                  mutate={mutate}
+                  region={region}
+                />
+              ))}
+            </div>
+
+            <form
+              className="alias-add-row"
+              onSubmit={addAlias}
+            >
+              <label>
+                <span>Add source alias</span>
+                <input
+                  aria-label={`New alias for ${region.code}`}
+                  maxLength={120}
+                  onChange={(event) =>
+                    setNewAlias(event.target.value)
+                  }
+                  placeholder="e.g. United Kingdom"
+                  required
+                  value={newAlias}
+                />
+              </label>
+
+              <button
+                className="ati-btn ati-btn--secondary"
+                disabled={
+                  busyKey === `alias-create-${region.id}`
+                }
+                type="submit"
+              >
+                Add alias
+              </button>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -356,61 +533,136 @@ function AliasEditor({
     successMessage: string,
   ) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(alias.alias);
-  const canonical = alias.normalizedAlias === region.code.toLowerCase();
-  const aliasUrl = `/api/admin/calendar-regions/${region.id}/aliases/${alias.id}`;
+  const canonical =
+    alias.normalizedAlias === region.code.toLowerCase();
+  const aliasUrl =
+    `/api/admin/calendar-regions/${region.id}/aliases/${alias.id}`;
+
+  async function saveAlias() {
+    const saved = await mutate(
+      `alias-name-${alias.id}`,
+      aliasUrl,
+      "PATCH",
+      { alias: value },
+      `Alias updated for ${region.code}.`,
+    );
+
+    if (saved) {
+      setEditing(false);
+    }
+  }
 
   return (
-    <div className={`alias-row ${alias.isActive ? "" : "alias-row--inactive"}`}>
-      <input
-        aria-label={`Alias for ${region.code}`}
-        disabled={canonical}
-        maxLength={120}
-        onChange={(event) => setValue(event.target.value)}
-        value={value}
-      />
-      <span className="alias-key">{alias.normalizedAlias}</span>
-      {canonical ? <span className="ati-badge ati-badge--brand">Canonical</span> : null}
-      <button
-        className="toolbar-link"
-        disabled={
-          canonical ||
-          !value.trim() ||
-          value.trim() === alias.alias ||
-          busyKey === `alias-name-${alias.id}`
-        }
-        onClick={() =>
-          void mutate(
-            `alias-name-${alias.id}`,
-            aliasUrl,
-            "PATCH",
-            { alias: value },
-            `Alias updated for ${region.code}.`,
+    <div
+      className={
+        alias.isActive
+          ? "alias-management-row"
+          : "alias-management-row alias-management-row--inactive"
+      }
+    >
+      <div className="alias-management-value">
+        {editing ? (
+          <input
+            aria-label={`Alias for ${region.code}`}
+            disabled={canonical}
+            maxLength={120}
+            onChange={(event) =>
+              setValue(event.target.value)
+            }
+            value={value}
+          />
+        ) : (
+          <strong>{alias.alias}</strong>
+        )}
+
+        <span className="alias-key">
+          {alias.normalizedAlias}
+        </span>
+      </div>
+
+      <div className="alias-management-meta">
+        {canonical ? (
+          <span className="ati-badge ati-badge--brand">
+            Canonical
+          </span>
+        ) : (
+          <span
+            className={
+              alias.isActive
+                ? "ati-badge ati-badge--success"
+                : "ati-badge ati-badge--warning"
+            }
+          >
+            {alias.isActive ? "Active" : "Inactive"}
+          </span>
+        )}
+      </div>
+
+      <div className="alias-management-actions">
+        {!canonical ? (
+          editing ? (
+            <>
+              <button
+                className="toolbar-link"
+                disabled={
+                  !value.trim() ||
+                  value.trim() === alias.alias ||
+                  busyKey === `alias-name-${alias.id}`
+                }
+                onClick={() => void saveAlias()}
+                type="button"
+              >
+                Save
+              </button>
+
+              <button
+                className="toolbar-link"
+                onClick={() => {
+                  setValue(alias.alias);
+                  setEditing(false);
+                }}
+                type="button"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              className="toolbar-link"
+              onClick={() => setEditing(true)}
+              type="button"
+            >
+              Rename
+            </button>
           )
-        }
-        type="button"
-      >
-        Save
-      </button>
-      <button
-        className="toolbar-link"
-        disabled={
-          (canonical && region.isActive) ||
-          busyKey === `alias-toggle-${alias.id}`
-        }
-        onClick={() =>
-          void mutate(
-            `alias-toggle-${alias.id}`,
-            aliasUrl,
-            "PATCH",
-            { isActive: !alias.isActive },
-            `Alias ${alias.isActive ? "deactivated" : "reactivated"} for ${region.code}.`,
-          )
-        }
-        type="button"
-      >
-        {alias.isActive ? "Deactivate" : "Reactivate"}
-      </button>
+        ) : null}
+
+        <button
+          className="toolbar-link"
+          disabled={
+            (canonical && region.isActive) ||
+            busyKey === `alias-toggle-${alias.id}`
+          }
+          onClick={() =>
+            void mutate(
+              `alias-toggle-${alias.id}`,
+              aliasUrl,
+              "PATCH",
+              { isActive: !alias.isActive },
+              `Alias ${
+                alias.isActive
+                  ? "deactivated"
+                  : "reactivated"
+              } for ${region.code}.`,
+            )
+          }
+          type="button"
+        >
+          {alias.isActive ? "Deactivate" : "Reactivate"}
+        </button>
+      </div>
     </div>
   );
 }

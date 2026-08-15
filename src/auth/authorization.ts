@@ -9,6 +9,14 @@ import {
 } from "@/auth/authorization-rules";
 import { db } from "@/lib/db";
 
+export type AuthorizedMenu = {
+  code: string;
+  label: string;
+  path: string | null;
+  sortOrder: number;
+  parentCode: string | null;
+};
+
 export async function getUserAuthorization(
   userId: string,
 ): Promise<UserAuthorization> {
@@ -64,11 +72,20 @@ export async function userHasPermission(
   return assignment !== null;
 }
 
-export async function listAuthorizedMenus(userId: string) {
+export async function listAuthorizedMenus(
+  userId: string,
+): Promise<AuthorizedMenu[]> {
   const authorization = await getUserAuthorization(userId);
   const allowed = new Set(authorization.permissions);
+
   const menus = await db.menu.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      OR: [
+        { parentId: null },
+        { parent: { isActive: true } },
+      ],
+    },
     orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
     select: {
       code: true,
@@ -84,9 +101,17 @@ export async function listAuthorizedMenus(userId: string) {
     },
   });
 
-  return menus.filter(
-    (menu) =>
-      !menu.requiredPermission ||
-      allowed.has(menu.requiredPermission.code),
-  );
+  return menus
+    .filter(
+      (menu) =>
+        !menu.requiredPermission ||
+        allowed.has(menu.requiredPermission.code),
+    )
+    .map((menu) => ({
+      code: menu.code,
+      label: menu.label,
+      path: menu.path,
+      sortOrder: menu.sortOrder,
+      parentCode: menu.parent?.code ?? null,
+    }));
 }

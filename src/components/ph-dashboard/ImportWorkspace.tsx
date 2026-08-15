@@ -113,7 +113,7 @@ export function ImportWorkspace({ canUpload }: { canUpload: boolean }) {
 
       {!canUpload ? (
         <p className="form-notice form-notice--warning">
-          Read-only access. Operator or Administrator role is required to upload.
+          Read-only access. Your current ATI PH permissions do not allow workbook upload.
         </p>
       ) : null}
       {error ? <p className="form-notice form-notice--error">{error}</p> : null}

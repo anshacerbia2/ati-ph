@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.8 |
+| Version | 0.3.9 |
 | Date | 2026-08-15 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -114,9 +114,10 @@ Completed in the first Phase 1 vertical slice:
 - Multi-region normalization with `Day` and `Tag` explicitly ignored as authoritative input
 - Validation summary in the ATI One-aligned dashboard
 - Audit event and transactional `ImportBatchValidated` outbox event
-- Single Prisma baseline migration `20260815180000_initial_foundation` with explicit module schema namespaces
+- Single Prisma baseline migration `20260815210000_initial_foundation` in PostgreSQL `public`, with native UUID entity identifiers
 - Database-managed calendar-region registry used by runtime import resolution
 - Administrator-only region and alias create, rename, activate, and deactivate controls with transactional audit events
+- Database-backed in-app navigation strip for the ATI One internal-app frame; ATI One retains global portal chrome while ATI PH menu visibility is permission-filtered and route/API authorization remains independently enforced
 
 Still pending before the Phase 1 exit gate is complete:
 
@@ -165,25 +166,27 @@ Still pending before the Phase 1 exit gate is complete:
 
 ### Tables introduced
 
+Implemented physical tables currently live in PostgreSQL `public`:
+
 ```text
-artifact.file_artifact
-ingestion.import_batch
-ingestion.import_row
-ingestion.import_validation_issue
-approval.approval_request
-holiday.calendar_region
-holiday.calendar_region_alias
-holiday.calendar_exception
-holiday.holiday_definition
-holiday.holiday_occurrence
-holiday.holiday_occurrence_region
-holiday.holiday_occurrence_date
-audit.audit_event
-execution.outbox_event
-identity.user
-identity.user_role
-identity.auth_session
+users
+auth_sessions
+roles
+permissions
+user_roles
+role_permissions
+menus
+file_artifacts
+import_batches
+import_rows
+import_validation_issues
+calendar_regions
+calendar_region_aliases
+audit_events
+outbox_events
 ```
+
+Approval and canonical holiday publication tables remain pending Phase 1 work and are not represented as already-created database objects
 
 ### Explicitly excluded
 

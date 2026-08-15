@@ -89,19 +89,48 @@ export const ROLE_PERMISSION_CODES: Record<
   ],
 };
 
-export const SYSTEM_MENUS = [
+export type SystemMenuDefinition = {
+  code: string;
+  label: string;
+  path?: string;
+  parentCode?: string;
+  requiredPermission?: PermissionCode;
+  sortOrder: number;
+};
+
+export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
+  {
+    code: "dashboard",
+    label: "Overview",
+    path: "/",
+    sortOrder: 10,
+  },
   {
     code: "public_holiday_operations",
-    label: "Public Holiday Operations",
-    path: "/",
+    label: "Operations",
+    requiredPermission: PERMISSIONS.IMPORT_READ,
+    sortOrder: 20,
+  },
+  {
+    code: "imports",
+    label: "Imports",
+    path: "/imports",
+    parentCode: "public_holiday_operations",
     requiredPermission: PERMISSIONS.IMPORT_READ,
     sortOrder: 10,
   },
   {
+    code: "administration",
+    label: "Administration",
+    requiredPermission: PERMISSIONS.CALENDAR_REGION_READ,
+    sortOrder: 30,
+  },
+  {
     code: "calendar_regions",
     label: "Calendar Regions",
-    path: undefined,
+    path: "/admin/calendar-regions",
+    parentCode: "administration",
     requiredPermission: PERMISSIONS.CALENDAR_REGION_READ,
-    sortOrder: 20,
+    sortOrder: 10,
   },
-] as const;
+];
