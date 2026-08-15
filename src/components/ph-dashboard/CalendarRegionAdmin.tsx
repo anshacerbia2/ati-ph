@@ -350,7 +350,11 @@ function RegionEditor({
         {canManage ? (
           <div className="region-summary-actions">
             <button
-              className="toolbar-link"
+              className={
+                editing
+                  ? "ati-btn ati-btn--compact ati-btn--neutral-subtle"
+                  : "ati-btn ati-btn--compact ati-btn--subtle"
+              }
               onClick={() => {
                 setName(region.displayName);
                 setEditing((value) => !value);
@@ -361,7 +365,11 @@ function RegionEditor({
             </button>
 
             <button
-              className="ati-btn ati-btn--secondary"
+              className={
+                region.isActive
+                  ? "ati-btn ati-btn--compact ati-btn--danger-subtle"
+                  : "ati-btn ati-btn--compact ati-btn--subtle"
+              }
               disabled={
                 busyKey === `region-toggle-${region.id}`
               }
@@ -605,7 +613,7 @@ function AliasEditor({
           editing ? (
             <>
               <button
-                className="toolbar-link"
+                className="ati-btn ati-btn--compact ati-btn--subtle"
                 disabled={
                   !value.trim() ||
                   value.trim() === alias.alias ||
@@ -618,7 +626,7 @@ function AliasEditor({
               </button>
 
               <button
-                className="toolbar-link"
+                className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
                 onClick={() => {
                   setValue(alias.alias);
                   setEditing(false);
@@ -630,7 +638,7 @@ function AliasEditor({
             </>
           ) : (
             <button
-              className="toolbar-link"
+              className="ati-btn ati-btn--compact ati-btn--subtle"
               onClick={() => setEditing(true)}
               type="button"
             >
@@ -640,7 +648,11 @@ function AliasEditor({
         ) : null}
 
         <button
-          className="toolbar-link"
+          className={
+            alias.isActive
+              ? "ati-btn ati-btn--compact ati-btn--danger-subtle"
+              : "ati-btn ati-btn--compact ati-btn--subtle"
+          }
           disabled={
             (canonical && region.isActive) ||
             busyKey === `alias-toggle-${alias.id}`

@@ -31,6 +31,58 @@
 .ati-btn--secondary { border-color: var(--border-default); background: transparent; color: var(--ati-navy); }
 .ati-btn--secondary:hover { border-color: var(--ati-navy); background: var(--ati-gray-50); box-shadow: none; }
 
+.ati-btn--compact {
+  height: 30px;
+  padding: 0 11px;
+  border-width: 1px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ati-btn--subtle {
+  border-color: transparent;
+  background: var(--ati-blue-50);
+  color: var(--ati-blue-deep);
+}
+
+.ati-btn--subtle:hover {
+  border-color: transparent;
+  background: var(--ati-blue-100);
+  color: var(--ati-blue-deep);
+  box-shadow: none;
+  transform: none;
+}
+
+.ati-btn--neutral-subtle {
+  border-color: transparent;
+  background: var(--ati-gray-100);
+  color: var(--ati-navy);
+}
+
+.ati-btn--neutral-subtle:hover {
+  border-color: transparent;
+  background: var(--ati-gray-200);
+  color: var(--ati-navy);
+  box-shadow: none;
+  transform: none;
+}
+
+.ati-btn--danger-subtle {
+  border-color: transparent;
+  background: var(--ati-danger-bg);
+  color: var(--ati-danger);
+}
+
+.ati-btn--danger-subtle:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ati-danger-bg) 78%, var(--ati-danger) 22%);
+  color: var(--ati-danger);
+  box-shadow: none;
+  transform: none;
+}
+
 .ati-badge {
   display: inline-flex;
   align-items: center;
