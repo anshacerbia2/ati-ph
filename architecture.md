@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.16 |
+| Version | 0.3.17 |
 | Date | 2026-08-17 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -17,9 +17,15 @@
 
 Build Public Holiday Notification as the first vertical slice of an operational workflow platform
 
-It consumes reusable modules for import, approval, notification, scheduling, artifacts, and audit. Those modules remain in one deployable until a second real consumer and stable contract justify extraction
+It consumes reusable modules for import, approval, notification, email delivery, scheduling, artifacts, and audit. Those modules remain in one deployable until a second real consumer and stable contract justify extraction
 
 This is deliberately not a microservice architecture and not a generic workflow platform
+
+The Email Delivery capability is designed as a provider-neutral reusable engine from its first implementation because provider selection and routing are infrastructure concerns rather than Public Holiday business rules
+
+Generic SMTP is the initial transport adapter. Provider records and routing are dynamic configuration. Provider-specific adapters are trusted code added only when required capabilities cannot be satisfied by an existing adapter
+
+No paid email provider is a mandatory architecture dependency
 
 The Public Holiday codebase, database, worker, authorization rules, and business operations remain independently owned. Its initial browser delivery is through ATI One's internal same-origin proxy and iframe path. ATI One does not participate in Public Holiday business logic, but it is the initial browser entry point and delivery gateway
 
@@ -47,7 +53,10 @@ flowchart TD
     APP --> SCH["Scheduling and Execution Module"]
     APP --> ART["Artifact Module"]
     APP --> AUD["Audit Module"]
-    MSG --> MAIL["Approved Email Provider"]
+    MSG --> EDP["Email Delivery Engine"]
+    EDP --> ROUTER["Dynamic Provider Router"]
+    ROUTER --> SMTP["Generic SMTP Adapter"]
+    ROUTER --> PAPI["Optional Provider API Adapter"]
     ART --> STORE["Object Storage"]
     IMP --> DB["PostgreSQL"]
     APP --> DB
@@ -82,7 +91,9 @@ flowchart LR
     WEB --> DB["PostgreSQL"]
     WORKER["ati-ph worker process"] --> DB
     WORKER --> OBJ["Object Storage"]
-    WORKER --> MAIL["Approved Email Provider"]
+    WORKER --> EDP["Email Delivery Engine"]
+    EDP --> SMTP["Generic SMTP / configured provider"]
+    EDP --> PAPI["Optional provider API adapter"]
     WEB --> KC["Keycloak"]
 ```
 
@@ -97,7 +108,8 @@ The upstream deployment remains independently operable as a web and worker workl
 | Public Holiday Workflow | Holiday lifecycle, occurrence matching, holiday policy use, correction logic, operational views | Generic import mechanics, generic email transport, generic artifact storage |
 | Governed Import | Raw file registration, parsing contract, staging rows, validation issues, schema mapping | Holiday business rules or canonical holiday publication |
 | Approval | Approval request, frozen content hash, maker-checker decision | Resource-specific validation or side effects |
-| Notification | Template version, message rendering, recipient snapshot, provider adapter, delivery attempts and events | Holiday selection or client subscription policy |
+| Notification | Template version, message rendering, recipient snapshot, provider-neutral message envelope | Holiday selection, client subscription policy, provider credentials, provider routing |
+| Email Delivery | Provider registry, routing, adapter selection, provider capabilities, delivery attempts and events | Holiday eligibility, template selection, business recipient policy |
 | Scheduling and Execution | Due work selection, worker lease, retry, dead-letter, idempotency mechanics | Email template rendering or holiday rules |
 | Artifact | Immutable file identity, checksum, object storage, controlled retrieval, retention class | Business interpretation of a file |
 | Audit | Append-only event history and trace correlation | Business state mutation |
@@ -256,7 +268,7 @@ An approval decision applies only to the exact snapshot hash submitted. Any cont
 
 #### Purpose
 
-Render and deliver a message independently from the business domain that requested it
+Render a business notification into an immutable provider-neutral message without allowing the business domain to depend on email transport implementation
 
 #### Owns
 
@@ -266,8 +278,6 @@ email_template_version
 template_assignment when assignment is generic
 notification_snapshot
 notification_recipient
-delivery_attempt
-delivery_event
 ```
 
 #### Interface
@@ -277,8 +287,7 @@ renderMessage(request)
 previewMessage(messageId)
 testSend(messageId, recipient)
 scheduleMessage(messageId, scheduledAt)
-sendMessage(messageId)
-recordDeliveryEvent(providerEvent)
+requestDelivery(messageId)
 ```
 
 #### Required request data
@@ -296,9 +305,9 @@ correlation ID
 #### Invariants
 
 - Rendering is immutable once approved or sent
-- Provider acceptance is not labelled final delivery
-- Retry reuses the frozen snapshot and idempotency key
-- Permanent failures do not retry automatically
+- Notification does not select provider credentials
+- Notification produces a provider-neutral frozen message
+- Retry never regenerates the approved content
 
 #### Reuse examples
 
@@ -307,7 +316,83 @@ correlation ID
 - Fare filing exception notification
 - Approval notification
 
-### 6.4 Scheduling and Execution Engine
+### 6.4 Email Delivery Engine
+
+#### Purpose
+
+Deliver a frozen provider-neutral message through dynamically configured providers without coupling consumer applications to one vendor
+
+#### Owns
+
+```text
+email_provider
+email_route
+provider capability metadata
+delivery_attempt
+delivery_event
+provider adapter contract
+provider routing policy
+```
+
+#### Initial adapter strategy
+
+```text
+Generic SMTP Adapter
+    ├── Corporate SMTP relay
+    ├── SMTP2GO
+    ├── MailerSend
+    ├── Elastic Email
+    └── Postal SMTP
+
+Optional provider-specific adapters
+    └── Microsoft Graph or another required provider API
+```
+
+Provider names are examples, not procurement commitments
+
+No paid provider is a mandatory dependency
+
+#### Interface
+
+```text
+deliver(message, routeContext)
+classifyProviderError(error)
+resolveProvider(routeContext)
+checkProviderHealth(providerId)
+recordDeliveryEvent(providerEvent)
+```
+
+#### Dynamic configuration
+
+Adapter implementations are trusted code
+
+Provider records and routing policy are runtime configuration
+
+Secrets are represented by secret references and resolved only inside this module
+
+Changing between providers that use an already implemented adapter type must not require Public Holiday business-code changes
+
+#### Fallback invariants
+
+- The logical idempotency key belongs to the platform, not the provider
+- `FAILED_BEFORE_ACCEPTANCE` may use an approved fallback route
+- Provider-specific rejection may fall back only when the recipient itself is not the failure
+- Permanent recipient failure does not fall back automatically
+- `ACCEPTED` never falls back
+- `UNKNOWN_OUTCOME` never falls back automatically
+- A second provider attempt reuses the same logical message and frozen snapshot
+
+#### Platform maturity
+
+The engine begins as Stage 1 inside `ati-ph`
+
+It becomes a shared internal capability only after a second production consumer validates the same contract
+
+It becomes an independently deployed Email Delivery Platform only when extraction criteria in this architecture are satisfied
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md` for the detailed contract
+
+### 6.5 Scheduling and Execution Engine
 
 #### Purpose
 
@@ -346,7 +431,7 @@ deadLetterWork(workId, reason)
 - Retry of external integrations
 - Periodic compliance checks
 
-### 6.5 Artifact Engine
+### 6.6 Artifact Engine
 
 #### Purpose
 
@@ -386,7 +471,7 @@ verifyArtifact(artifactId)
 - CSV reconciliation report
 - Provider NDR evidence
 
-### 6.6 Audit Engine
+### 6.7 Audit Engine
 
 #### Purpose
 
@@ -436,6 +521,7 @@ Logical ownership remains explicit even though the tables are physically colocat
 | `file_artifacts` | Artifact |
 | `audit_events` | Audit |
 | `outbox_events` | Scheduling and Execution |
+| future `email_providers`, `email_routes`, `delivery_attempts`, `delivery_events` | Email Delivery |
 
 Module boundaries are code-ownership and contract boundaries, not nested database schemas. Cross-module mutation rules below still apply
 
@@ -466,7 +552,7 @@ Allowed:
 Not allowed:
 
 - One module updating another module's table directly
-- Domain module reading raw provider secrets
+- Domain or Notification module reading raw provider secrets
 - Notification module deciding holiday eligibility
 - Import module publishing domain records without domain authorization
 
@@ -480,8 +566,10 @@ flowchart TD
     B --> C["HolidayOccurrencePublished"]
     C --> D["NotificationRequested"]
     D --> E["Message rendered and scheduled"]
-    E --> F["Provider accepted or failed"]
-    F --> G["Audit and operational reporting"]
+    E --> F["EmailDeliveryRequested"]
+    F --> G["Provider selected and attempt recorded"]
+    G --> H["Provider accepted, failed, or outcome unknown"]
+    H --> I["Audit and operational reporting"]
 ```
 
 ### 8.2 Contract rules
@@ -501,8 +589,10 @@ flowchart TD
 | `HolidayOccurrencePublished` | Public Holiday | Planner evaluates affected subscriptions |
 | `NotificationRequested` | Public Holiday | Notification renders message and stores snapshot |
 | `NotificationScheduled` | Notification | Execution selects it when due |
-| `NotificationAcceptedByProvider` | Notification | Update reporting and audit |
-| `NotificationDeliveryFailed` | Notification | Classify failure and alert operations |
+| `EmailDeliveryRequested` | Scheduling and Execution | Email Delivery resolves provider route and creates an attempt |
+| `EmailAcceptedByProvider` | Email Delivery | Update reporting and audit without claiming final recipient delivery |
+| `EmailDeliveryFailed` | Email Delivery | Classify failure, retry eligibility, fallback eligibility, and operations alert |
+| `EmailDeliveryOutcomeUnknown` | Email Delivery | Block automatic fallback until reconciliation |
 | `ArtifactCreated` | Artifact | Link evidence to source resource |
 
 ## 9. Reuse Maturity Model
@@ -564,7 +654,7 @@ Do not place these inside a generic workflow or rule engine
 | --- | --- | --- |
 | Enterprise IdP | Keycloak OIDC authentication | Realm `ati-one`; shared ATI One client ID as a temporary exception; exact mounted callback and logout URIs |
 | ATI One internal-app proxy | Browser delivery and upstream proof | Same-origin iframe mount, `/apps/ph-notification/app` base path, and validated proxy header on every non-health request |
-| Email provider | Notification adapter | Controlled sender mailbox and provider acceptance response |
+| Outbound email providers | Email Delivery Engine | Generic SMTP first, runtime provider registry and routing, optional provider-specific adapters |
 | Object storage | Artifact adapter | Immutable file storage and controlled retrieval |
 | PostgreSQL | Internal persistence | Transaction, outbox, lock, and audit support |
 | Observability platform | Telemetry adapter | Logs, metrics, traces, and alerts |
@@ -584,9 +674,10 @@ Do not place these inside a generic workflow or rule engine
 - Keycloak authenticates the user; application roles and permissions are resolved by `ati-ph` from its own database or an explicitly approved group-to-role mapping
 - Next.js `proxy.ts` may perform an optimistic session-presence redirect, but every sensitive read and mutation performs a secure server-side authorization check close to the data access
 - Public Holiday module receives business data but no provider credentials
-- Notification module receives only rendered recipient and message data required for send
+- Notification module produces only the frozen provider-neutral message required for delivery
+- Email Delivery module is the only business-runtime boundary allowed to resolve provider secret references and select transport adapters
 - Artifact module stores controlled references and checksums, not business decisions
-- Email service principal is scoped to the approved sender mailbox
+- Provider credentials and sender identities are scoped to the minimum approved outbound delivery capability
 - Audit module redacts protected values according to policy
 - User role checks happen server-side before every mutation
 
@@ -677,7 +768,11 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 | Authorization source | `ati-ph` database roles, with optional explicit Keycloak group mapping |
 | ATI One integration | Initial browser entry point and delivery gateway; no Public Holiday business logic ownership |
 | Reusable implementation model | Modules first, services only on evidence |
-| Reusable capabilities | Import, Approval, Notification, Scheduling, Artifact, Audit |
+| Reusable capabilities | Import, Approval, Notification, Email Delivery, Scheduling, Artifact, Audit |
+| Initial email transport | Generic SMTP Adapter |
+| Email provider selection | Dynamic provider registry and route configuration |
+| Mandatory paid email provider | No |
+| Email platform extraction | Only after a second production consumer and extraction criteria are satisfied |
 | Domain capability | Holiday lifecycle and matching |
 | Shared database initially | Yes, with schema and ownership boundaries |
 | Generic BPMN engine | No |
@@ -687,6 +782,8 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 ## 15. Next Reference
 
 See `plan.md` for phased delivery, decision gates, and when each module becomes reusable beyond Public Holiday
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md` for the provider-neutral Email Delivery Engine, dynamic provider routing, safe fallback, and platform-extraction contract
 
 ## Client preprocessing and authoritative verification
 

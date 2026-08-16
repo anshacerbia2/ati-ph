@@ -131,12 +131,36 @@ The official governed workbook files are:
 - `docs/ATI-PH-Import-Template-Governed.xlsx`
 - `docs/ATI-PH-Example-Import-Governed.xlsx`
 
-See `architecture.md` and `plan.md` for the implementation boundaries and
-delivery phases.
+See `PROPOSAL.md`, `architecture.md`, and `plan.md` for the client-facing solution,
+implementation boundaries, and delivery phases.
+
+Related contracts:
+
+- `docs/GOVERNED-IMPORT-CONTRACT.md`
+- `docs/ACCESS-CONTROL.md`
+- `docs/EMAIL-DELIVERY-PLATFORM.md`
 
 The current shared-client logout limitation and the target dedicated-client,
 back-channel single-logout design are documented in
 `docs/FUTURE-SINGLE-LOGOUT.md`.
+
+## Email delivery direction
+
+Email delivery is outside the current Phase 1 implementation
+
+The planned Phase 3 design is provider-neutral:
+
+- Generic SMTP is the first transport adapter
+- Provider records and ordered routes are runtime configuration
+- Provider adapter implementations remain trusted code
+- SMTP-compatible providers can be switched without changing Public Holiday business logic when they use the same implemented SMTP adapter
+- Provider-specific API adapters remain optional
+- Microsoft Graph is not a required dependency
+- No paid provider is mandatory in the architecture
+- Automatic provider fallback is forbidden after provider acceptance or an unknown delivery outcome
+- The delivery capability starts as a reusable module and becomes a shared Email Delivery Platform only after a second production consumer validates the contract
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md` for the detailed design
 
 ## Browser extension hydration warnings
 

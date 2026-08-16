@@ -3,13 +3,13 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Solution proposal for Operations client review |
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | Date | 2026-08-17 |
 | Prepared by | DSD Team |
 | Scope | Internal Operations Public Holiday Notification Workflow |
 | Proposed architecture | Modular monolith with asynchronous worker |
 | Canonical data store | PostgreSQL |
-| Email integration | Provider adapter; Microsoft Graph when Microsoft 365 is the approved email platform |
+| Email integration | Provider-neutral Email Delivery Engine; Generic SMTP first; provider selection and routing are runtime configuration |
 | Input and output | Governed XLSX with versioned schema and templates |
 
 ## 1. Executive Summary
@@ -29,7 +29,7 @@ The solution shall use:
 - Versioned notification policies, email templates, and output workbook templates
 - Transactional outbox and idempotent workers for durable asynchronous processing
 - Maker-checker approval controls for governed publication and controlled notification delivery
-- Provider-specific email integration behind an adapter
+- Provider-neutral Email Delivery Engine with Generic SMTP first and dynamically configured providers
 - Delivery attempt, bounce, and audit evidence that is not silently overwritten
 
 The current workbook remains useful as a source for requirements, migration, and acceptance comparison, but it must not remain the runtime database or workflow engine
@@ -97,7 +97,7 @@ The proposed initial release shall not:
 
 - Use AI to make deterministic holiday, date, region, or recipient decisions
 - Scrape public holiday websites without an approved source contract
-- Replace enterprise identity or email platforms
+- Replace enterprise identity or operate as a general-purpose mailbox or marketing platform
 - Provide a general-purpose campaign marketing platform
 - Use Excel as the application database
 - Introduce microservices, Kafka, Kubernetes, or Redis without demonstrated operational need
@@ -131,6 +131,9 @@ The proposed initial release shall not:
 - Permanent delivery failures are not retried automatically
 - Transient retries reuse the same notification job and snapshot
 - Output artifacts have a cryptographic checksum
+- Provider selection is infrastructure configuration, not Public Holiday business logic
+- Provider adapter implementations are trusted code while provider records and routing are runtime configuration
+- Provider fallback never occurs automatically after provider acceptance or an unknown delivery outcome
 
 ## 6. Actors and Access Control
 
@@ -171,7 +174,10 @@ flowchart TD
     WEB --> OBJ["Artifact Storage"]
     DB --> WORKER["Dedicated Worker"]
     WORKER --> OBJ
-    WORKER --> EMAIL["Approved Email Provider Adapter - later delivery phase"]
+    WORKER --> EMAIL["Email Delivery Engine - later delivery phase"]
+    EMAIL --> ROUTER["Dynamic Provider Router"]
+    ROUTER --> SMTP["Generic SMTP Adapter"]
+    ROUTER --> API["Optional Provider API Adapter"]
 ```
 
 The Public Holiday application owns its business logic, database, worker, local application session, roles, permissions, audit trail, and operational workflow
@@ -196,7 +202,7 @@ Keycloak currently proves user identity. The application resolves its own roles 
 | Matching Engine | Deterministic holiday-to-subscription matching | Proposed next phase |
 | Notification Orchestration | Run creation, job generation, snapshots, approvals | Proposed next phase |
 | Scheduling and Execution | Due work, lease recovery, retry, dead-letter, idempotency | Proposed delivery phase |
-| Delivery and Monitoring | Provider calls, delivery attempts, NDR or bounce evidence | Proposed delivery phase |
+| Email Delivery Engine | Generic SMTP, provider registry, dynamic routing, provider adapters, delivery attempts, NDR or bounce evidence | Proposed delivery phase |
 
 ### 7.2 Recommended deployment
 
@@ -1359,52 +1365,78 @@ Unique constraint:
 
 The following is the proposed target model for a later delivery phase and is not part of the current Phase 1 physical implementation
 
+#### `email_provider`
+
+Conceptual provider configuration. Physical column details are finalized during Phase 3 detailed design
+
+| Column | Purpose |
+| --- | --- |
+| `id` | Provider identity |
+| `code` | Stable provider code |
+| `adapter_type` | Trusted adapter implementation such as SMTP or MICROSOFT_GRAPH |
+| `status` | Active or inactive routing state |
+| `priority` | Default routing priority where applicable |
+| `secret_ref` | Reference to approved secret storage |
+| `configuration` | Non-secret provider configuration |
+| `capabilities` | Supported delivery capabilities |
+
+#### `email_route`
+
+Conceptual runtime routing configuration
+
+| Column | Purpose |
+| --- | --- |
+| `id` | Route identity |
+| `consumer_code` | Consumer such as PUBLIC_HOLIDAY |
+| `notification_type` | Message class |
+| `provider_id` | Configured provider |
+| `priority` | Ordered route priority |
+| `status` | Active or inactive |
+| `effective_from` | Optional route activation |
+| `effective_to` | Optional route retirement |
+
 #### `delivery_attempt`
 
-| Column | Type | Constraints | Purpose |
-| --- | --- | --- | --- |
-| `id` | UUID | PK | Attempt identity |
-| `notification_job_id` | UUID | NOT NULL, FK `notification_job` | Parent job |
-| `attempt_number` | SMALLINT | NOT NULL | Monotonic attempt number |
-| `provider` | VARCHAR(50) | NOT NULL | MICROSOFT_GRAPH or configured adapter |
-| `provider_request_id` | VARCHAR(255) | NULL | Provider request correlation |
-| `provider_message_id` | VARCHAR(500) | NULL | Provider message identifier when available |
-| `status` | VARCHAR(30) | NOT NULL | STARTED, ACCEPTED, FAILED_TRANSIENT, FAILED_PERMANENT |
-| `http_status` | SMALLINT | NULL | Provider HTTP result |
-| `error_category` | VARCHAR(50) | NULL | NETWORK, THROTTLE, AUTHORIZATION, RECIPIENT, PROVIDER |
-| `error_code` | VARCHAR(100) | NULL | Machine-readable error |
-| `error_message` | TEXT | NULL | Sanitized diagnostic message |
-| `retry_after_at` | TIMESTAMPTZ | NULL | Provider-directed retry time |
-| `response_metadata` | JSONB | NULL | Sanitized provider metadata |
-| `started_at` | TIMESTAMPTZ | NOT NULL | Attempt start |
-| `finished_at` | TIMESTAMPTZ | NULL | Attempt completion |
+| Column | Type | Purpose |
+| --- | --- | --- |
+| `id` | UUID | Attempt identity |
+| `notification_job_id` | UUID | Parent logical notification job |
+| `provider_id` | UUID | Provider selected by the Email Delivery Engine |
+| `attempt_number` | SMALLINT | Monotonic attempt number |
+| `provider_request_id` | VARCHAR(255), nullable | Provider request correlation |
+| `provider_message_id` | VARCHAR(500), nullable | Provider message identifier where available |
+| `status` | VARCHAR(40) | STARTED, ACCEPTED, FAILED_BEFORE_ACCEPTANCE, FAILED_PERMANENT, UNKNOWN_OUTCOME |
+| `error_category` | VARCHAR(50), nullable | Sanitized error classification |
+| `error_code` | VARCHAR(100), nullable | Machine-readable provider error |
+| `error_message` | TEXT, nullable | Sanitized diagnostic text |
+| `retry_after_at` | TIMESTAMPTZ, nullable | Provider-directed retry time |
+| `response_metadata` | JSONB, nullable | Sanitized provider metadata |
+| `started_at` | TIMESTAMPTZ | Attempt start |
+| `finished_at` | TIMESTAMPTZ, nullable | Attempt completion |
 
-Unique constraint:
-
-- `notification_job_id, attempt_number`
+The same logical notification and idempotency key are reused when an approved fallback provider is attempted
 
 #### `delivery_event`
 
-| Column | Type | Constraints | Purpose |
-| --- | --- | --- | --- |
-| `id` | UUID | PK | Event identity |
-| `notification_job_id` | UUID | NULL, FK `notification_job` | Correlated job |
-| `delivery_attempt_id` | UUID | NULL, FK `delivery_attempt` | Correlated attempt |
-| `provider_event_id` | VARCHAR(255) | NULL | Provider event deduplication |
-| `event_type` | VARCHAR(30) | NOT NULL | NDR, BOUNCE, NO_FAILURE_RECEIVED, ADMIN_TRACE |
-| `recipient_email` | VARCHAR(320) | NULL | Affected recipient |
-| `enhanced_status_code` | VARCHAR(50) | NULL | SMTP or provider status |
-| `classification` | VARCHAR(30) | NOT NULL | TRANSIENT, PERMANENT, INFORMATIONAL |
-| `raw_artifact_id` | UUID | NULL, FK `file_artifacts` | Raw provider evidence |
-| `metadata` | JSONB | NULL | Parsed provider metadata |
-| `occurred_at` | TIMESTAMPTZ | NOT NULL | Provider event time |
-| `received_at` | TIMESTAMPTZ | NOT NULL | Application receipt time |
+| Column | Type | Purpose |
+| --- | --- | --- |
+| `id` | UUID | Event identity |
+| `notification_job_id` | UUID, nullable | Correlated logical message |
+| `delivery_attempt_id` | UUID, nullable | Correlated attempt |
+| `provider_event_id` | VARCHAR(255), nullable | Provider event deduplication |
+| `event_type` | VARCHAR(40) | NDR, BOUNCE, NO_FAILURE_RECEIVED, ADMIN_TRACE, or provider-supported event |
+| `recipient_email` | VARCHAR(320), nullable | Affected recipient |
+| `classification` | VARCHAR(30) | TRANSIENT, PERMANENT, INFORMATIONAL, or UNKNOWN |
+| `raw_artifact_id` | UUID, nullable | Raw provider evidence when retained |
+| `metadata` | JSONB, nullable | Sanitized parsed evidence |
+| `occurred_at` | TIMESTAMPTZ | Provider event time |
+| `received_at` | TIMESTAMPTZ | Application receipt time |
 
-Indexes:
+Provider configuration is dynamic, but adapter source code is not loaded dynamically from the database
 
-- Unique partial index on `provider_event_id` when present
-- Index on `notification_job_id, occurred_at`
-- Index on `recipient_email, occurred_at`
+Generic SMTP is the initial adapter target. SMTP2GO, corporate SMTP, MailerSend, Elastic Email, Postal, or another approved SMTP-compatible relay can use that same adapter contract
+
+Microsoft Graph remains an optional provider-specific adapter rather than a required dependency
 
 ### 14.11 File artifacts
 
@@ -1577,38 +1609,135 @@ Every mutation endpoint requires:
 - Idempotency key where the operation may be retried
 - Optimistic concurrency version for mutable configuration
 
-## 18. Email Integration
+## 18. Email Delivery Engine
 
-### 18.1 Provider abstraction
+### 18.1 Architectural position
 
-The application uses an interface such as:
+The proposed solution does not require Microsoft Graph, SMTP2GO, or any other paid provider as a fixed architecture dependency
+
+The DSD Team proposes a provider-neutral **Email Delivery Engine** with:
+
+- Generic SMTP as the first transport adapter
+- Runtime-configured provider registry
+- Runtime-configured provider routing
+- Provider capability metadata
+- Provider-specific API adapters only when required
+- Platform-owned idempotency
+- Safe fallback rules that prevent duplicate delivery
+
+The Public Holiday workflow remains independent of the selected provider
+
+The detailed contract is maintained in `docs/EMAIL-DELIVERY-PLATFORM.md`
+
+### 18.2 Adapter model
+
+Adapter implementations are trusted application code
+
+Provider configuration is dynamic runtime data
+
+The solution must not load arbitrary adapter code from the database
+
+Conceptual interface:
 
 ```text
-Send(message, recipients, correlation_id) -> provider_acceptance
-ClassifyError(provider_error) -> transient | permanent
+Send(message, provider_context) -> delivery_result
+ClassifyError(provider_error) -> delivery_classification
+CheckHealth(provider_context) -> health_evidence
 ConsumeDeliveryEvent(event) -> correlated_delivery_event
 ```
 
-This keeps business workflow independent of Microsoft Graph, Gmail API, or another approved provider
+The initial adapter should be generic SMTP
 
-### 18.2 Microsoft 365 implementation
+SMTP-compatible providers can therefore be changed through configuration without changing Public Holiday business code, provided the selected provider satisfies the required capabilities and operational controls
 
-When Microsoft 365 is the approved email platform:
+Possible SMTP-compatible targets include:
 
-- Send through the approved notification mailbox
-- Use application authentication for unattended worker execution
-- Restrict application access to the intended mailbox using Exchange RBAC for Applications
-- Save a copy in Sent Items when required by operations
-- Treat `202 Accepted` as provider acceptance only
-- Monitor the mailbox for NDR messages when delivery monitoring is enabled
-- Use least-privileged mailbox read permission required by the monitoring approach
+- Existing corporate SMTP relay
+- SMTP2GO
+- MailerSend
+- Elastic Email
+- Self-hosted Postal
+- Another approved SMTP relay
 
-References:
+These are provider examples, not commercial commitments
 
-- Microsoft Graph `sendMail`: https://learn.microsoft.com/en-us/graph/api/user-sendmail
-- Exchange RBAC for Applications: https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac
-- Outlook change notifications: https://learn.microsoft.com/en-us/graph/outlook-change-notifications-overview
-- Exchange Online NDR: https://learn.microsoft.com/en-us/troubleshoot/exchange/email-delivery/ndr/non-delivery-reports-in-exchange-online
+### 18.3 Dynamic provider registry and routing
+
+The proposed delivery model separates:
+
+```text
+Provider adapter implementation
+→ trusted code and deployment
+
+Provider configuration
+→ runtime configuration
+
+Provider routing policy
+→ runtime configuration
+
+Provider credentials
+→ approved secret store
+```
+
+Conceptual provider records include:
+
+```text
+provider code
+adapter type
+status
+priority
+secret reference
+configuration
+capabilities
+```
+
+Conceptual routing records can select an ordered provider route by consumer and notification type
+
+The first implementation does not require complex routing rules beyond the real Public Holiday use case
+
+### 18.4 Provider switching
+
+A provider can be switched without redeployment when the replacement uses an adapter type already implemented by the system
+
+For example, two SMTP-compatible providers can both use the Generic SMTP Adapter while their host, port, TLS, secret reference, and routing priority remain configuration
+
+A new transport protocol or provider-specific API still requires an explicit trusted adapter, tests, security review, and deployment
+
+### 18.5 Safe fallback
+
+Provider fallback is not a blind retry against another provider
+
+A timeout can leave the delivery outcome uncertain
+
+Required delivery classifications include:
+
+```text
+FAILED_BEFORE_ACCEPTANCE
+DEFINITIVE_PROVIDER_REJECTION
+RECIPIENT_PERMANENT_FAILURE
+ACCEPTED
+UNKNOWN_OUTCOME
+```
+
+Rules:
+
+- A proven pre-acceptance provider failure may use an approved fallback route
+- A provider-specific rejection may use a fallback when the recipient itself is not the failure
+- A permanent recipient failure does not switch provider automatically
+- An accepted message never switches provider
+- An unknown outcome never switches provider automatically
+
+The platform must reconcile an unknown outcome before another provider attempt is permitted
+
+### 18.6 Platform evolution
+
+The Email Delivery Engine begins as a reusable module inside the Public Holiday modular monolith
+
+It is intentionally designed so the provider-neutral contract can later serve additional internal applications
+
+A standalone Email Delivery Platform is created only after a second real production consumer proves the contract and independent ownership or deployment is justified
+
+This preserves the current architecture principle of proving reuse before extracting a platform service
 
 ## 19. Security Controls
 
@@ -1838,24 +1967,38 @@ Exit criteria:
 
 Current position: **proposed**
 
-- Approved email-provider adapter
-- Controlled sender mailbox
+- Provider-neutral Email Delivery Engine
+- Generic SMTP adapter as the initial transport adapter
+- Dynamic provider registry
+- Dynamic provider route configuration
+- Provider capability metadata
+- Approved sender identity
 - Test-send
 - Notification-run approval
 - Durable scheduled job execution
 - Transactional outbox processing
 - Atomic worker claims and lease recovery
+- Platform-owned idempotency across provider attempts
+- Safe fallback only for proven pre-acceptance or provider-specific failures
+- Unknown-outcome reconciliation before any provider switch
 - Transient retry and permanent failure handling
 - Dead-letter handling
 - NDR or bounce monitoring where supported
 - Error dashboard and delivery evidence
 - Manual cancellation and authorized retry
+- Optional provider-specific API adapters when Generic SMTP is insufficient
+
+No paid provider is a mandatory dependency of the solution architecture
+
+SMTP2GO, an existing corporate SMTP relay, MailerSend, Elastic Email, Postal, or another approved SMTP-compatible provider can use the same Generic SMTP Adapter when they satisfy the agreed operational and security requirements
 
 Exit criteria:
 
 - Controlled pilot completes without duplicate sends
 - Delivery evidence is traceable to source batch and frozen notification snapshot
-- Permanent failures do not retry automatically
+- Provider changes within an implemented adapter type do not require Public Holiday business-code changes
+- Accepted or unknown-outcome messages are not automatically resent through another provider
+- Permanent recipient failures do not retry automatically or fail over to another provider
 - Cancellation and recovery procedures are tested
 
 ### Phase 4 — Trusted automation
@@ -1891,6 +2034,10 @@ The application is ready for production when:
 - All privileged mutations produce audit events
 - Backup and restore procedures are tested
 - Security review approves mailbox permissions and file handling
+- Provider selection is runtime configuration rather than Public Holiday business logic
+- Switching between providers that use the same implemented adapter type does not require Public Holiday business-code changes
+- Accepted messages are never automatically resent through another provider
+- Unknown delivery outcomes are never automatically failed over
 
 ## 25. Decisions Required Before Implementation
 
@@ -1904,7 +2051,8 @@ The following decisions are still required before their dependent phases can be 
 | Recipient ownership and maintenance process | Finalizes TO and CC governance |
 | Calendar day or business day for H-X | Finalizes scheduling behavior |
 | Whether business days exclude other public holidays | Finalizes business-day calculation |
-| Email platform | Finalizes delivery adapter and provider evidence |
+| Initial outbound email route and approved sender identity | Finalizes the first configured provider while preserving provider-neutral delivery |
+| Provider routing and fallback policy | Defines whether and when another provider can be selected without duplicate-send risk |
 | Sender mailbox ownership and permissions | Finalizes unattended delivery identity |
 | Notification-run approval mode and approver responsibility | Finalizes controlled delivery workflow |
 | Mass-send or exception approval threshold | Finalizes risk control |
@@ -2027,6 +2175,8 @@ The DSD Team recommends keeping the governed XLSX as the operational source cont
 The DSD Team recommends immutable source and execution evidence rather than using Excel as workflow state
 
 The DSD Team recommends shadow-mode reconciliation before external email delivery and controlled delivery before trusted automation
+
+The DSD Team recommends implementing email delivery as a provider-neutral reusable engine with Generic SMTP as the first adapter, runtime provider configuration, and safe fallback semantics. This avoids making Microsoft Graph or any paid provider a mandatory dependency while preserving a clear path to a shared Email Delivery Platform after a second production consumer validates the contract
 
 The workbook should not be migrated sheet-by-sheet as a database copy. Its overloaded rows should be normalized into the business concepts already identified in this proposal: clients, service teams, subscriptions, recipients, policies, templates, canonical holidays, notification snapshots, and delivery evidence
 

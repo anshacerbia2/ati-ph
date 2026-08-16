@@ -320,7 +320,7 @@ h1, h2, h3 { color: var(--text-strong); font-family: var(--font-display); }
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) minmax(120px, auto);
   align-items: center;
-  gap: 14px;
+  gap: 0 14px;
   padding: 13px 14px;
   border-top: 1px solid var(--border-subtle);
   background: var(--ati-white);
@@ -331,6 +331,7 @@ h1, h2, h3 { color: var(--text-strong); font-family: var(--font-display); }
 }
 
 .import-review-issue__severity {
+  display: flex;
   align-self: start;
   padding-top: 1px;
 }

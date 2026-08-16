@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.16 |
+| Version | 0.3.17 |
 | Date | 2026-08-17 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -48,7 +48,7 @@ Remove ambiguity before implementation starts
 - One signed-off successful output workbook
 - One approved final notification email example
 - One provider failure or NDR example
-- Confirmed email platform and sender mailbox owner
+- Confirmed initial outbound email route or relay, approved sender identity, and owning team
 - Confirmed H-X rule as calendar day or business day
 - Confirmed owner for client master, recipient master, policy, template, and approval
 - Confirmed ATI One public mount URL and private `ati-ph` upstream address for development, staging, and production
@@ -64,7 +64,7 @@ Remove ambiguity before implementation starts
 | Start-date display behavior for legacy Day and Tag columns | Operations owner |
 | Business-day calculation semantics | Operations owner |
 | Approval threshold and approver group | Process owner |
-| Email sender mailbox and reply handling | IT and process owner |
+| Initial outbound email route, sender identity, and reply handling | IT and process owner |
 | Artifact retention policy | Compliance and IT |
 | ATI One internal-app mount, upstream address, and TLS termination | ATI One owner, IT, and technical owner |
 | Mounted callback/logout URIs on the shared ATI One Keycloak client | SSO administrator and technical owner |
@@ -291,17 +291,30 @@ artifact.notification_run_artifact
 
 ### Objective
 
-Enable production email through a controlled sender with traceable delivery attempts
+Enable production email through a provider-neutral delivery capability with traceable attempts, dynamic provider configuration, and safe provider switching
 
 ### Scope
 
 #### Notification module
 
-- Provider adapter
-- Sender mailbox configuration
+- Provider-neutral frozen message envelope
+- Rendered message and recipient snapshot handoff
+- Test-send request
+- Notification-run approval
+- Approval invalidation when frozen snapshot changes
+
+#### Email Delivery Engine
+
+- Generic SMTP adapter as the first transport adapter
+- Dynamic provider registry
+- Dynamic provider routing
+- Provider capability metadata
+- Provider secret references
 - Delivery attempt recording
-- Transient and permanent error classification
-- NDR or bounce ingestion where provider supports it
+- Transient, permanent, accepted, and unknown-outcome classification
+- Safe fallback only when the previous provider is proven not to have accepted the message
+- NDR or bounce ingestion where the selected provider supports it
+- Provider-specific API adapters only when a required capability is not available through Generic SMTP
 - Error summary report
 
 #### Scheduling and Execution module
@@ -309,22 +322,34 @@ Enable production email through a controlled sender with traceable delivery atte
 - Due-job claiming
 - Worker lease recovery
 - Exponential retry with jitter
+- Platform-owned idempotency across provider attempts
 - Dead-letter handling
 - Manual retry with reason
+- Kill switch
 
-#### Approval module
+### Proposed tables
 
-- Notification-run approval
-- Approval invalidation when frozen snapshot changes
-
-### Tables introduced
+Logical ownership remains separate even though the modular monolith uses PostgreSQL `public`
 
 ```text
-communication.notification_job
-communication.delivery_attempt
-communication.delivery_event
-execution.dead_letter_job or equivalent state
+email_providers
+email_routes
+notification_jobs
+delivery_attempts
+delivery_events
 ```
+
+The physical Phase 3 schema is finalized during implementation and is not claimed as part of the current Phase 1 baseline
+
+### Initial provider strategy
+
+- Prefer an approved existing corporate SMTP relay when it satisfies the operating requirements
+- Otherwise configure an approved SMTP-compatible provider for the pilot
+- SMTP2GO is a valid example of an SMTP-compatible initial provider
+- MailerSend, Elastic Email, Postal, or another approved SMTP relay can use the same Generic SMTP Adapter
+- Microsoft Graph remains an optional provider-specific adapter, not a required dependency
+- No paid provider is mandatory in the architecture
+- Provider selection must consider sender-domain control, deliverability, security, volume, limits, and support requirements rather than free-tier availability alone
 
 ### Pilot rules
 
@@ -333,13 +358,18 @@ execution.dead_letter_job or equivalent state
 - Require test-send completion
 - Enable a kill switch that stops new sends
 - Do not label provider acceptance as confirmed delivery
+- Never automatically switch provider after `ACCEPTED`
+- Never automatically switch provider after `UNKNOWN_OUTCOME`
+- Do not route a permanent recipient failure to another provider
 - Review all failures daily during pilot
 
 ### Exit gate
 
-- No duplicate sends under retry and worker restart tests
-- Provider authorization is scoped to the sender mailbox
+- No duplicate sends under retry, worker restart, and approved provider-fallback tests
+- Provider credentials are isolated behind the Email Delivery boundary
+- Provider configuration can switch between providers using the same implemented adapter type without Public Holiday business-code changes
 - Permanent recipient failure does not retry automatically
+- Unknown outcomes require reconciliation before another provider attempt
 - Operational team can cancel unsent jobs
 - Delivery attempt and source batch are traceable from every sent email
 
@@ -373,20 +403,27 @@ Move from operator-triggered runs to policy-controlled scheduling
 
 Prove which modules are genuinely platform capabilities
 
+The Email Delivery Engine is an explicit platform candidate because its provider registry, routing, adapters, delivery evidence, and idempotency contract are intentionally business-domain neutral
+
+It still remains a module until a second production consumer validates the contract
+
 ### Candidate second consumers
 
 | Candidate | Reusable modules exercised |
 | --- | --- |
-| Fare filing exception notification | Import, Approval, Notification, Artifact, Audit |
-| SLA breach reminder | Notification, Scheduling, Artifact, Audit |
-| Contract expiry workflow | Notification, Scheduling, Approval, Audit |
-| Finance reconciliation exception | Import, Approval, Notification, Artifact, Audit |
+| Fare filing exception notification | Import, Approval, Notification, Email Delivery, Artifact, Audit |
+| SLA breach reminder | Notification, Email Delivery, Scheduling, Artifact, Audit |
+| Contract expiry workflow | Notification, Email Delivery, Scheduling, Approval, Audit |
+| Finance reconciliation exception | Import, Approval, Notification, Email Delivery, Artifact, Audit |
 
 ### Required before adoption
 
 - Second application has a real product owner and production use case
 - Shared contract is reviewed by both owners
+- Provider-neutral message contract is stable
 - Module-specific authorization is defined
+- Provider and sender ownership are defined
+- Consumer isolation is defined
 - Data ownership remains clear
 - Existing Public Holiday behavior remains regression-tested
 
@@ -394,9 +431,9 @@ Prove which modules are genuinely platform capabilities
 
 Choose one:
 
-- Keep module shared inside modular monolith
-- Promote selected module to formal platform capability
-- Extract service only if independent deployment is justified
+- Keep Email Delivery as a shared module inside the existing modular boundary
+- Promote Email Delivery to a formal shared internal capability
+- Extract an Email Delivery Platform service only if independent deployment is justified
 
 ## 9. Workstream Order
 
@@ -409,7 +446,7 @@ Choose one:
 | 5 | Client routing and policy | Determines who should be notified |
 | 6 | Template and output generation | Validates business outcome before send risk |
 | 7 | Approval and shadow mode | Proves correctness with low external risk |
-| 8 | Provider delivery and retry | Adds external side effect only after result is trusted |
+| 8 | Email Delivery Engine, provider routing, and retry | Adds external side effect only after result is trusted while avoiding provider lock-in |
 | 9 | Automation and alerts | Removes manual operation only after controls work |
 | 10 | Shared-client separation review | Decides whether the temporary Keycloak client exception remains acceptable |
 | 11 | Second-consumer reuse | Prevents speculative platform extraction |
@@ -552,6 +589,10 @@ Choose one:
 - Permanent recipient error stops automatic retry
 - NDR updates recipient and job evidence
 - Kill switch blocks new sends
+- Provider selection is loaded from runtime configuration
+- Switching providers that use the same trusted adapter type requires no Public Holiday business-code change
+- Accepted messages never automatically fall back to another provider
+- Unknown outcomes never automatically fall back to another provider
 
 ### Audit gate
 
@@ -567,6 +608,8 @@ Choose one:
 - Notification run cancellation
 - Provider authorization failure
 - Provider throttling or outage
+- Provider route change and rollback
+- Unknown delivery outcome reconciliation
 - Bounce remediation
 - Holiday correction before send
 - Holiday correction after send
@@ -595,7 +638,9 @@ Do not add these before their need is proven:
 - Visual workflow designer
 - Generic BPMN runtime
 - Generic rule authoring language
-- Multi-provider email routing
+- Arbitrary provider adapter code loaded dynamically from the database
+- Provider-specific business logic inside the Public Holiday domain
+- Complex multi-dimensional email routing beyond a demonstrated consumer requirement
 - Microservices
 - Kubernetes
 - AI holiday extraction
@@ -606,6 +651,10 @@ Do not add these before their need is proven:
 - Browser access that bypasses the approved ATI One internal-app entry path
 - Expansion of the shared Keycloak client exception beyond OIDC client identity and credentials
 - Durable scheduler, retry, email send, or workbook generation executed as unawaited work inside a Next.js request
+
+Dynamic provider configuration and ordered provider routing are allowed because they are now an explicit Phase 3 requirement
+
+Adapter implementations remain trusted code and are not arbitrary runtime plugins
 
 ## 15. Definition of Done for the First Production Release
 
@@ -621,15 +670,25 @@ The first release is done only when:
 - Output workbook matches the signed-off template
 - Every send uses a frozen snapshot and idempotency key
 - Email delivery has approval, retry, cancellation, and error controls
+- Email delivery is provider-neutral and Generic SMTP is the initial adapter
+- Provider selection and ordered routing are runtime configuration
+- Provider failover cannot resend an accepted or unknown-outcome logical message
 - Operations can explain any generated email from source file through delivery attempt
 - Runbooks and kill switch are tested
 - Product, operations, IT, and security owners accept the release
 
 ## 16. Next Decision
 
-Start Phase 0 in `D:\ATI-Projects\ati-ph` with two parallel foundation activities:
+Complete the remaining Phase 1 acceptance gates first:
 
-1. Obtain the raw holiday source, signed-off output workbook, approved email example, and email-provider ownership confirmation
-2. Scaffold Next.js 16.3.1, PostgreSQL, Prisma, the worker entry point, `/apps/ph-notification/app` mount, proxy-proof validation, and the application-owned session boundary using the temporarily shared ATI One Keycloak client ID
+1. Run the agreed end-to-end smoke with the worker active
+2. Complete mounted ATI One acceptance
+3. Obtain Operations business-owner verification of canonical publication evidence
 
-Domain implementation does not start until the input, output, timing, approval, identity, and sender contracts are explicit. Foundation scaffolding and mounted authentication verification may proceed because their boundaries are now defined in `architecture.md`. No change to the ATI One source project is included
+Then begin Phase 2 Client Routing, Preview, and Governed Output
+
+Phase 3 Email Delivery detailed design may continue in parallel at the contract level, using `docs/EMAIL-DELIVERY-PLATFORM.md` as the provider-neutral baseline, but external email delivery must not be enabled before the Phase 2 shadow-mode result is accepted
+
+No specific paid provider is a prerequisite for Phase 2
+
+The first Phase 3 transport adapter is Generic SMTP, while the concrete provider remains runtime configuration subject to Operations, IT, security, sender-domain, and deliverability approval
