@@ -13,8 +13,18 @@ import {
 } from "@/artifacts/local-storage";
 import { PERMISSIONS } from "@/auth/authorization-catalog";
 import { authorizeRoute } from "@/auth/route-access";
-import { parseClientPreviewJson } from "@/imports/client-preview";
+import { computeBusinessContentSha256 } from "@/imports/business-content";
+import {
+  ClientPreviewValidationError,
+  parseClientPreviewJson,
+  previewHasBlockingErrors,
+} from "@/imports/client-preview";
+import {
+  parseHolidayWorkbook,
+  WorkbookContractError,
+} from "@/imports/holiday-workbook";
 import { computePreviewSha256 } from "@/imports/preview-integrity";
+import { assertSafeXlsxPackage } from "@/imports/xlsx-safety";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
 
@@ -23,6 +33,33 @@ export const runtime = "nodejs";
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const MAX_PREVIEW_JSON_BYTES = 8_000_000;
+
+type DuplicateImport = {
+  id: string;
+  batchNumber: string;
+  status: string;
+  uploadedAt: Date;
+};
+
+class ConcurrentExactDuplicateError extends Error {
+  readonly duplicate: DuplicateImport;
+
+  constructor(duplicate: DuplicateImport) {
+    super("EXACT_FILE_DUPLICATE");
+    this.name = "ConcurrentExactDuplicateError";
+    this.duplicate = duplicate;
+  }
+}
+
+class ConcurrentBusinessDuplicateError extends Error {
+  readonly duplicate: DuplicateImport;
+
+  constructor(duplicate: DuplicateImport) {
+    super("SAME_HOLIDAY_DATA");
+    this.name = "ConcurrentBusinessDuplicateError";
+    this.duplicate = duplicate;
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   const access = await authorizeRoute(PERMISSIONS.IMPORT_CREATE);
@@ -36,9 +73,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     formData = await request.formData();
   } catch {
-    return Response.json(
-      { error: "Expected a multipart upload." },
-      { status: 400 },
+    return apiError(
+      400,
+      "INVALID_UPLOAD_REQUEST",
+      "The upload request could not be read. Re-select the workbook and try again.",
     );
   }
 
@@ -46,59 +84,34 @@ export async function POST(request: Request): Promise<Response> {
   const previewText = formData.get("preview");
 
   if (!(upload instanceof File)) {
-    return Response.json(
-      { error: "XLSX file is required." },
-      { status: 400 },
-    );
-  }
-
-  if (
-    typeof previewText !== "string" ||
-    previewText.length === 0 ||
-    Buffer.byteLength(previewText, "utf8") > MAX_PREVIEW_JSON_BYTES
-  ) {
-    return Response.json(
-      { error: "A valid client preview payload is required." },
-      { status: 400 },
-    );
-  }
-
-  let preview;
-  try {
-    preview = parseClientPreviewJson(previewText);
-  } catch (error) {
-    return Response.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Client preview is invalid.",
-      },
-      { status: 422 },
+    return apiError(
+      400,
+      "WORKBOOK_REQUIRED",
+      "Select an XLSX workbook before submitting.",
     );
   }
 
   const env = getServerEnv();
 
-  if (
-    upload.size === 0 ||
-    upload.size > env.IMPORT_MAX_FILE_SIZE_BYTES
-  ) {
-    return Response.json(
-      {
-        error:
-          `File must be between 1 byte and ${env.IMPORT_MAX_FILE_SIZE_BYTES} bytes.`,
-      },
-      { status: 413 },
+  if (upload.size === 0) {
+    return apiError(400, "EMPTY_WORKBOOK", "The selected workbook is empty.");
+  }
+
+  if (upload.size > env.IMPORT_MAX_FILE_SIZE_BYTES) {
+    return apiError(
+      413,
+      "WORKBOOK_TOO_LARGE",
+      `The selected workbook exceeds the ${env.IMPORT_MAX_FILE_SIZE_BYTES}-byte upload limit.`,
     );
   }
 
   const safeFileName = sanitizeFileName(upload.name);
 
   if (path.extname(safeFileName).toLowerCase() !== ".xlsx") {
-    return Response.json(
-      { error: "Only .xlsx files are accepted." },
-      { status: 415 },
+    return apiError(
+      415,
+      "UNSUPPORTED_FILE_TYPE",
+      "Select a supported .xlsx workbook.",
     );
   }
 
@@ -107,55 +120,155 @@ export async function POST(request: Request): Promise<Response> {
     upload.type !== XLSX_MIME &&
     upload.type !== "application/octet-stream"
   ) {
-    return Response.json(
-      { error: "Unexpected workbook MIME type." },
-      { status: 415 },
+    return apiError(
+      415,
+      "UNSUPPORTED_FILE_TYPE",
+      "The selected file is not a supported XLSX workbook.",
     );
   }
 
-  const bytes = new Uint8Array(await upload.arrayBuffer());
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await upload.arrayBuffer());
+  } catch {
+    return apiError(
+      400,
+      "WORKBOOK_READ_FAILED",
+      "The selected workbook could not be read. Re-select it and try again.",
+    );
+  }
+
   const sha256 = createHash("sha256").update(bytes).digest("hex");
 
-  const duplicate = await db.importBatch.findFirst({
-    where: { fileSha256: sha256 },
-    orderBy: { uploadedAt: "desc" },
-    select: {
-      id: true,
-      batchNumber: true,
-      status: true,
-      uploadedAt: true,
-    },
-  });
-
-  // FUTURE: controlled exact-duplicate reprocessing may restore an explicit
-  // governed/admin recovery override. Normal governed imports fail closed.
-  // Previous override condition:
-  // if (
-  //   duplicate &&
-  //   formData.get("confirmDuplicate") !== "true"
-  // ) {
+  const duplicate = await findExactDuplicate(db, sha256);
   if (duplicate) {
-    return Response.json(
-      {
-        error: "This exact workbook was imported before. Exact duplicate files cannot be reprocessed through the normal import flow.",
-        code: "EXACT_FILE_DUPLICATE",
-        duplicate,
+    return exactDuplicateResponse(duplicate);
+  }
+
+  let businessContentSha256: string | null = null;
+  try {
+    await assertSafeXlsxPackage(bytes);
+
+    const activeAliases = await db.calendarRegionAlias.findMany({
+      where: {
+        isActive: true,
+        region: { isActive: true },
       },
-      { status: 409 },
+      select: {
+        normalizedAlias: true,
+        region: {
+          select: { code: true },
+        },
+      },
+    });
+
+    if (activeAliases.length === 0) {
+      return apiError(
+        503,
+        "CALENDAR_REGION_REGISTRY_UNAVAILABLE",
+        "ATI PH has no active calendar-region aliases. The workbook was not imported.",
+      );
+    }
+
+    const authoritativeBusinessPreview = await parseHolidayWorkbook(bytes, {
+      regionAliases: new Map(
+        activeAliases.map((entry) => [
+          entry.normalizedAlias,
+          entry.region.code,
+        ]),
+      ),
+      rejectSampleRows: true,
+    });
+
+    businessContentSha256 = computeBusinessContentSha256(
+      authoritativeBusinessPreview.rows,
+    );
+  } catch (error) {
+    if (error instanceof WorkbookContractError) {
+      return apiError(
+        422,
+        "WORKBOOK_SERVER_VALIDATION_FAILED",
+        "The workbook could not pass server-side XLSX validation. Review the workbook and try again.",
+      );
+    }
+
+    console.error("ATI PH Holiday_Master duplicate preflight failed.", error);
+    return apiError(
+      500,
+      "HOLIDAY_DUPLICATE_PREFLIGHT_FAILED",
+      "ATI PH could not verify the Holiday_Master content. No import was created.",
+    );
+  }
+
+  if (businessContentSha256) {
+    const businessDuplicate = await findBusinessDuplicate(
+      db,
+      businessContentSha256,
+    );
+    if (businessDuplicate) {
+      return sameHolidayDataResponse(businessDuplicate);
+    }
+  }
+
+  if (typeof previewText !== "string" || previewText.length === 0) {
+    return apiError(
+      400,
+      "WORKBOOK_PREVIEW_REQUIRED",
+      "Preview this workbook before submitting it.",
+    );
+  }
+
+  if (Buffer.byteLength(previewText, "utf8") > MAX_PREVIEW_JSON_BYTES) {
+    return apiError(
+      413,
+      "WORKBOOK_PREVIEW_TOO_LARGE",
+      "This workbook contains too much preview data for one import. Split it into smaller imports and try again.",
+    );
+  }
+
+  let preview: ReturnType<typeof parseClientPreviewJson>;
+  try {
+    preview = parseClientPreviewJson(previewText);
+  } catch (error) {
+    if (
+      error instanceof ClientPreviewValidationError &&
+      error.code === "UNSUPPORTED_IMPORT_SCHEMA"
+    ) {
+      return apiError(
+        422,
+        "UNSUPPORTED_IMPORT_SCHEMA",
+        "This workbook uses an unsupported import schema. Use the current ATI PH template or a supported legacy Holiday_Master workbook.",
+      );
+    }
+
+    return apiError(
+      422,
+      "INVALID_WORKBOOK_PREVIEW",
+      "The workbook preview could not be validated. Re-select the XLSX file and wait for the preview to finish before submitting.",
+    );
+  }
+
+  if (preview.rows.length === 0) {
+    return apiError(
+      422,
+      "NO_HOLIDAY_ROWS",
+      "No holiday rows were found in Holiday_Master.",
+    );
+  }
+
+  if (previewHasBlockingErrors(preview)) {
+    return apiError(
+      422,
+      "WORKBOOK_VALIDATION_FAILED",
+      "This workbook has blocking validation errors. Resolve the errors shown in the preview before submitting.",
     );
   }
 
   const clientPreviewSha256 = computePreviewSha256(preview);
 
-  // FUTURE: controlled exact-duplicate reprocessing audit marker
-  // if (duplicate) {
-  //   preview.issues.unshift({
-  //     severity: "WARNING",
-  //     code: "DUPLICATE_FILE_CONFIRMED",
-  //     message:
-  //       `Operator explicitly reprocessed duplicate batch ${duplicate.batchNumber}.`,
-  //   });
-  // }
+  // FUTURE: controlled reprocessing of exact or semantically identical
+  // Holiday_Master content must be a separate governed/admin recovery flow.
+  // Normal imports fail closed on either duplicate identity.
   const artifactId = randomUUID();
   const batchId = randomUUID();
   const now = new Date();
@@ -175,10 +288,50 @@ export async function POST(request: Request): Promise<Response> {
     (issue) => issue.severity === "WARNING",
   ).length;
 
-  await storeImmutableArtifact(storageKey, bytes);
+  try {
+    await storeImmutableArtifact(storageKey, bytes);
+  } catch (error) {
+    await removeUnregisteredArtifact(storageKey).catch(() => undefined);
+    console.error("ATI PH raw import artifact storage failed.", error);
+
+    return apiError(
+      500,
+      "ARTIFACT_STORAGE_FAILED",
+      "The workbook could not be stored safely. No import was created.",
+    );
+  }
 
   try {
     await db.$transaction(async (transaction) => {
+      const duplicateLockHash = businessContentSha256 ?? sha256;
+      const [lockKeyA, lockKeyB] = advisoryLockKeys(duplicateLockHash);
+      await transaction.$executeRaw`
+        SELECT pg_advisory_xact_lock(
+          ${lockKeyA}::integer,
+          ${lockKeyB}::integer
+        )
+      `;
+
+      const concurrentDuplicate = await findExactDuplicate(
+        transaction,
+        sha256,
+      );
+      if (concurrentDuplicate) {
+        throw new ConcurrentExactDuplicateError(concurrentDuplicate);
+      }
+
+      if (businessContentSha256) {
+        const concurrentBusinessDuplicate = await findBusinessDuplicate(
+          transaction,
+          businessContentSha256,
+        );
+        if (concurrentBusinessDuplicate) {
+          throw new ConcurrentBusinessDuplicateError(
+            concurrentBusinessDuplicate,
+          );
+        }
+      }
+
       await transaction.fileArtifact.create({
         data: {
           id: artifactId,
@@ -204,6 +357,7 @@ export async function POST(request: Request): Promise<Response> {
           rawArtifactId: artifactId,
           fileSha256: sha256,
           clientPreviewSha256,
+          businessContentSha256,
           columnMapping: asJson(preview.columnMapping),
           status: "UPLOADED",
           totalRows,
@@ -214,20 +368,18 @@ export async function POST(request: Request): Promise<Response> {
         },
       });
 
-      if (preview.rows.length > 0) {
-        await transaction.importRow.createMany({
-          data: preview.rows.map((row) => ({
-            id: rowIds.get(row.sourceRowNumber)!,
-            importBatchId: batchId,
-            sourceSheet: row.sourceSheet,
-            sourceRowNumber: row.sourceRowNumber,
-            sourceRowId: row.sourceRowId,
-            rawData: asJson(row.rawData),
-            normalizedData: asJson(row.normalizedData),
-            status: row.status,
-          })),
-        });
-      }
+      await transaction.importRow.createMany({
+        data: preview.rows.map((row) => ({
+          id: rowIds.get(row.sourceRowNumber)!,
+          importBatchId: batchId,
+          sourceSheet: row.sourceSheet,
+          sourceRowNumber: row.sourceRowNumber,
+          sourceRowId: row.sourceRowId,
+          rawData: asJson(row.rawData),
+          normalizedData: asJson(row.normalizedData),
+          status: row.status,
+        })),
+      });
 
       if (preview.issues.length > 0) {
         await transaction.importValidationIssue.createMany({
@@ -261,6 +413,7 @@ export async function POST(request: Request): Promise<Response> {
             warningCount,
             fileSha256: sha256,
             clientPreviewSha256,
+            businessContentSha256,
             verificationPending: true,
           },
         },
@@ -268,11 +421,21 @@ export async function POST(request: Request): Promise<Response> {
     });
   } catch (error) {
     await removeUnregisteredArtifact(storageKey).catch(() => undefined);
+
+    if (error instanceof ConcurrentExactDuplicateError) {
+      return exactDuplicateResponse(error.duplicate);
+    }
+
+    if (error instanceof ConcurrentBusinessDuplicateError) {
+      return sameHolidayDataResponse(error.duplicate);
+    }
+
     console.error("ATI PH import staging failed.", error);
 
-    return Response.json(
-      { error: "Import could not be staged." },
-      { status: 500 },
+    return apiError(
+      500,
+      "IMPORT_STAGING_FAILED",
+      "The workbook could not be staged. No import was created.",
     );
   }
 
@@ -294,6 +457,86 @@ export async function POST(request: Request): Promise<Response> {
     },
     { status: 202 },
   );
+}
+
+function apiError(
+  status: number,
+  code: string,
+  error: string,
+): Response {
+  return Response.json({ code, error }, { status });
+}
+
+function exactDuplicateResponse(duplicate: DuplicateImport): Response {
+  return Response.json(
+    {
+      code: "EXACT_FILE_DUPLICATE",
+      error:
+        `This workbook was already imported as ${duplicate.batchNumber}. ` +
+        "No new import was created. Upload a revised workbook only if the source data has changed.",
+      duplicate,
+    },
+    { status: 409 },
+  );
+}
+
+function sameHolidayDataResponse(duplicate: DuplicateImport): Response {
+  return Response.json(
+    {
+      code: "SAME_HOLIDAY_DATA",
+      error:
+        `The Holiday_Master data was already imported as ${duplicate.batchNumber}. ` +
+        "No new import was created. Workbook metadata, filename, formatting, and unrelated sheets do not create a new holiday dataset.",
+      duplicate,
+    },
+    { status: 409 },
+  );
+}
+
+type ImportBatchLookup = Pick<Prisma.TransactionClient, "importBatch">;
+
+function findExactDuplicate(
+  client: ImportBatchLookup,
+  sha256: string,
+): Promise<DuplicateImport | null> {
+  return client.importBatch.findFirst({
+    where: { fileSha256: sha256 },
+    orderBy: { uploadedAt: "desc" },
+    select: {
+      id: true,
+      batchNumber: true,
+      status: true,
+      uploadedAt: true,
+    },
+  });
+}
+
+function findBusinessDuplicate(
+  client: ImportBatchLookup,
+  businessContentSha256: string,
+): Promise<DuplicateImport | null> {
+  return client.importBatch.findFirst({
+    where: {
+      businessContentSha256,
+      status: {
+        in: ["UPLOADED", "VERIFYING", "VALIDATED"],
+      },
+    },
+    orderBy: { uploadedAt: "desc" },
+    select: {
+      id: true,
+      batchNumber: true,
+      status: true,
+      uploadedAt: true,
+    },
+  });
+}
+
+function advisoryLockKeys(sha256: string): [number, number] {
+  return [
+    Number.parseInt(sha256.slice(0, 8), 16) | 0,
+    Number.parseInt(sha256.slice(8, 16), 16) | 0,
+  ];
 }
 
 function asJson(value: unknown): Prisma.InputJsonValue {

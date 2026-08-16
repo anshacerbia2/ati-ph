@@ -3,8 +3,8 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.15 |
-| Date | 2026-08-15 |
+| Version | 0.3.16 |
+| Date | 2026-08-17 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -101,13 +101,15 @@ The application must demonstrate a complete mounted login round trip through the
 
 Replace spreadsheet processing with controlled ingestion and canonical holiday data
 
-### Implementation status — 2026-08-15
+### Implementation status — 2026-08-17
 
 Completed in the first Phase 1 vertical slice:
 
 - Authenticated Operator/Administrator XLSX upload UI and Route Handler
 - Immutable local raw-artifact adapter with SHA-256 evidence
-- Duplicate-file confirmation gate
+- Dual duplicate hard-block: `fileSha256` for byte-identical XLSX evidence and `businessContentSha256` for canonical authoritative `Holiday_Master` content; normal imports have no duplicate-confirmation override
+- Server duplicate preflight ignores workbook metadata, filename, formatting, row order, unrelated sheets, source row ID, source reference, remarks, and legacy `Day`/`Tag` when determining holiday business identity
+- Concurrent exact or business-identical submissions are rechecked under a transaction-scoped PostgreSQL advisory lock before persistence
 - Legacy `Holiday_Master` schema mapping and approved header aliases
 - Row-level raw and normalized staging persistence
 - Required-field, region, date range, sample-row, formula, duplicate, overlap, macro, and corruption validation
@@ -123,7 +125,7 @@ Completed in the first Phase 1 vertical slice:
 - Controlled normalized-staging correction, exclusion, and restoration with immutable raw evidence, full-batch revalidation, audit history, and validation-state outbox transition
 - Reusable maker-checker approval request with frozen SHA-256 content hash, requester/approver separation, approve/reject decision history, transactional audit/outbox events, and rejection unfreeze for correction/resubmission
 - Idempotent canonical holiday publication from approved staging with holiday definition/occurrence/region/date persistence, inclusive multi-day expansion, derived weekday/weekend classification, immutable source-row lineage, and publication audit/outbox event
-- Browser-side SheetJS preprocessing and preview before upload, followed by asynchronous authoritative raw-workbook verification in the worker using a deterministic SHA-256 preview fingerprint
+- Browser-side SheetJS preprocessing and preview before upload, bounded server-side XLSX plus `Holiday_Master` duplicate preflight before persistence, followed by asynchronous authoritative raw-workbook verification in the worker using deterministic preview and business-content fingerprints
 
 Still pending before the Phase 1 exit gate is complete:
 
@@ -195,7 +197,7 @@ audit_events
 outbox_events
 ```
 
-The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage. `import_batches` also carries `clientPreviewSha256`, `verificationStartedAt`, and `verifiedAt` so browser preprocessing remains advisory until independently verified
+The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage. `import_batches` carries `fileSha256`, `businessContentSha256`, `clientPreviewSha256`, `verificationStartedAt`, and `verifiedAt` so exact evidence identity, canonical `Holiday_Master` business identity, and browser-preview integrity remain distinct concerns
 
 ### Explicitly excluded
 
@@ -211,6 +213,7 @@ The Phase 1 persistence baseline now includes reusable approval state plus canon
 - Multi-day holiday is expanded correctly
 - One input region row produces one canonical region relation
 - Source file and published occurrence lineage are traceable
+- Byte-identical XLSX evidence and semantically identical authoritative `Holiday_Master` business content cannot create a second normal import batch
 - Repeated identical planner or publisher action is idempotent
 
 ## 5. Phase 2 — Client Routing, Preview, and Governed Output

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  GOVERNED_HOLIDAY_SCHEMA_VERSION,
   HOLIDAY_IMPORT_SCHEMA_NAME,
   HOLIDAY_SOURCE_SHEET,
   LEGACY_HOLIDAY_SCHEMA_VERSION,
 } from "@/imports/contracts";
-import { parseClientPreviewJson } from "@/imports/client-preview";
+import {
+  ClientPreviewValidationError,
+  parseClientPreviewJson,
+  previewHasBlockingErrors,
+} from "@/imports/client-preview";
 import { computePreviewSha256 } from "@/imports/preview-integrity";
 
 const preview = {
@@ -39,8 +44,33 @@ const preview = {
 };
 
 describe("client preview contract", () => {
-  it("accepts the governed preview shape", () => {
+  it("accepts the approved legacy preview schema", () => {
     expect(parseClientPreviewJson(JSON.stringify(preview))).toEqual(preview);
+  });
+
+  it("accepts the governed 1.0 preview schema", () => {
+    const governed = {
+      ...preview,
+      schemaVersion: GOVERNED_HOLIDAY_SCHEMA_VERSION,
+    };
+
+    expect(parseClientPreviewJson(JSON.stringify(governed))).toEqual(
+      governed,
+    );
+  });
+
+  it("rejects unsupported schema versions with a stable code", () => {
+    try {
+      parseClientPreviewJson(
+        JSON.stringify({ ...preview, schemaVersion: "2.0" }),
+      );
+      throw new Error("Expected unsupported schema rejection.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ClientPreviewValidationError);
+      expect((error as ClientPreviewValidationError).code).toBe(
+        "UNSUPPORTED_IMPORT_SCHEMA",
+      );
+    }
   });
 
   it("rejects source lineage outside Holiday_Master", () => {
@@ -51,7 +81,29 @@ describe("client preview contract", () => {
           rows: [{ ...preview.rows[0], sourceSheet: "Other" }],
         }),
       ),
-    ).toThrow("Client preview rows contain invalid source lineage.");
+    ).toThrowError(ClientPreviewValidationError);
+  });
+
+  it("detects blocking rows and issues for backend enforcement", () => {
+    expect(previewHasBlockingErrors(preview)).toBe(false);
+    expect(
+      previewHasBlockingErrors({
+        ...preview,
+        rows: [{ ...preview.rows[0], status: "INVALID" as const }],
+      }),
+    ).toBe(true);
+    expect(
+      previewHasBlockingErrors({
+        ...preview,
+        issues: [
+          {
+            severity: "ERROR" as const,
+            code: "BLOCKING",
+            message: "Blocking issue",
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("produces stable preview integrity hashes", () => {

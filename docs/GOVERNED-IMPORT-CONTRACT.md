@@ -3,8 +3,8 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Implemented ingestion baseline |
-| Version | 1.6-draft |
-| Date | 2026-08-15 |
+| Version | 1.7-draft |
+| Date | 2026-08-17 |
 | Schema name | `ati-public-holiday-import` |
 | Legacy schema version | `legacy-1.0` |
 | Required legacy sheet | `Holiday_Master` |
@@ -22,8 +22,10 @@ The supplied `ModifByRF-FCTG-Master Data Template - PH Notifications.xlsx` workb
 - Size must not exceed `IMPORT_MAX_FILE_SIZE_BYTES`
 - Package must have a valid ZIP signature and CRC
 - Encrypted, corrupt, macro-enabled, and VBA-containing packages are rejected
-- Exact SHA-256 duplicates require explicit operator confirmation
-- Original bytes are stored under a new immutable artifact key
+- Byte-identical XLSX evidence hard-blocks with `EXACT_FILE_DUPLICATE`; normal imports have no confirmation override
+- Different XLSX bytes with the same canonical authoritative `Holiday_Master` business content hard-block with `SAME_HOLIDAY_DATA` when an existing batch is `UPLOADED`, `VERIFYING`, or `VALIDATED`
+- Duplicate preflight completes before raw artifact or import-batch persistence, so a blocked duplicate creates no new evidence record or batch
+- Accepted original bytes are stored under a new immutable artifact key
 
 ## Legacy header mapping
 
@@ -84,16 +86,19 @@ Sample/test rows produce warnings in development and errors in production. Unkno
 
 ## Persistence and transaction boundary
 
-The raw artifact is written with create-only filesystem semantics. One database transaction then creates:
+Submit preflight validates the XLSX package and workbook contract, resolves active calendar-region aliases, parses only `Holiday_Master` for business duplicate identity, and computes `businessContentSha256` before persistence.
+
+The raw artifact is written only after exact-file, business-content, preview-contract, and blocking-validation gates pass. The database transaction then acquires a PostgreSQL advisory lock derived from `businessContentSha256` when available, otherwise `fileSha256`, rechecks exact and business duplicate identity, and creates:
 
 - `file_artifacts`
 - `import_batches`
 - `import_rows`
 - `import_validation_issues`
-- `audit_events`
-- `outbox_events` with `ImportBatchValidated` only for a valid batch
+- the upload `audit_events` record
 
-If the transaction fails, only the not-yet-registered file is removed. Registered artifacts are never overwritten.
+The worker later performs independent authoritative verification and emits `ImportBatchValidated` only after the stored raw workbook has been reparsed successfully.
+
+If the transaction fails or a concurrent duplicate wins the lock, only the not-yet-registered file is removed. Registered artifacts are never overwritten.
 
 ## Evidence retrieval
 
@@ -126,14 +131,16 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 - The user sees normalized rows, canonical region resolution, dates, row status, warnings, and errors before submission
 - Browser preprocessing is advisory and cannot authorize approval or publication
 - On confirmation the browser submits the untouched XLSX plus the complete preview JSON
-- The API stores raw XLSX evidence immutably, stores preview rows and issues as provisional staging, records `clientPreviewSha256`, and returns `UPLOADED` without synchronous workbook parsing
+- Before persistence, the API synchronously validates XLSX package safety and workbook contract, treats `Holiday_Master` as the only business-data sheet, resolves active region aliases, computes `businessContentSha256`, and applies exact plus business duplicate hard-blocks
+- This synchronous server parse exists only to enforce the submit boundary and duplicate identity; it does not make browser staging authoritative
+- After duplicate and preview gates pass, the API stores raw XLSX evidence immutably, stores provisional preview rows and issues, records `fileSha256`, `businessContentSha256`, and `clientPreviewSha256`, and returns `UPLOADED`
 - `UPLOADED` and `VERIFYING` batches cannot be corrected, acknowledged, submitted for approval, approved, or published
 - The worker claims pending batches as `VERIFYING`; stale verification claims are retryable
 - The worker verifies ZIP integrity and rejects macro-enabled packages before parsing
-- The worker independently reparses the stored XLSX with SheetJS and recomputes the deterministic preview fingerprint
-- Fingerprint mismatch fails the batch closed as `FAILED`
-- A matching server parse replaces provisional row and issue values with the authoritative result and transitions the batch to `VALIDATED` or `INVALID`
-- Only server-verified staging participates in maker-checker approval and canonical publication
+- The worker independently reparses the stored XLSX with SheetJS, recomputes `businessContentSha256`, and recomputes the deterministic preview fingerprint
+- Preview fingerprint mismatch fails the batch closed as `FAILED`
+- A matching worker parse replaces provisional row and issue values with the authoritative result and transitions the batch to `VALIDATED` or `INVALID`
+- Only worker-verified staging participates in maker-checker approval and canonical publication
 
 ## Maker-checker approval
 
@@ -185,81 +192,82 @@ This is an ingestion result, not business-owner sign-off on the holidays themsel
 
 ## Remaining Phase 1 work
 
-- Governed metadata sheet/named-range detection for schema name, version, year, source, and generation time
+- End-to-end worker verification smoke, including exact-byte and metadata-independent `Holiday_Master` duplicate cases
 - Business-owner acceptance of the canonical publication result and mounted ATI One smoke verification
-
 
 ## Remaining Phase 1 acceptance
 
-- End-to-end worker verification smoke
+- End-to-end worker verification smoke, including one `EXACT_FILE_DUPLICATE` case and one byte-different `SAME_HOLIDAY_DATA` case
 - Mounted ATI One smoke verification and business-owner acceptance of the canonical publication result
 
 <!-- ATI_PH_IMPORT_FLOW_START -->
 ## Governed import processing flow
 
-This section defines what happens from local workbook preview through evidence, worker verification, review, approval, and canonical publication.
+This section defines what happens from local workbook preview through duplicate preflight, evidence, worker verification, review, approval, and canonical publication.
 
 ```mermaid
 flowchart TD
     A[User selects XLSX] --> B[Browser parses Holiday_Master]
     B --> C[Normalize + preliminary validation]
     C --> D[Local preview]
-
     D -->|Blocking ERROR| E[Submit disabled]
     D -->|Valid| F[User confirms submit]
 
     F --> G[POST raw XLSX + complete preview JSON]
-
     G --> H[Calculate fileSha256<br/>entire XLSX bytes]
-    H --> I[Store immutable raw artifact]
-    I --> J[file_artifacts]
+    H --> I{Exact fileSha256 exists?}
+    I -->|Yes| I1[409 EXACT_FILE_DUPLICATE<br/>no persistence]
+    I -->|No| J[Server XLSX safety + contract check<br/>Holiday_Master business parse]
 
-    J --> K[Create import batch<br/>status UPLOADED]
-    K --> L[import_batches]
+    J --> K[Normalize authoritative business fields<br/>using active region aliases]
+    K --> L[Calculate businessContentSha256]
+    L --> M{Same Holiday_Master business hash<br/>in UPLOADED / VERIFYING / VALIDATED?}
+    M -->|Yes| M1[409 SAME_HOLIDAY_DATA<br/>no persistence]
+    M -->|No| N[Validate client preview contract<br/>and blocking errors]
 
-    L --> M[Store provisional rows]
-    M --> N[import_rows]
+    N --> O[Store immutable raw artifact]
+    O --> P[file_artifacts]
+    P --> Q[Transaction advisory lock<br/>recheck exact + business duplicates]
+    Q --> R[Create import batch<br/>status UPLOADED]
+    R --> S[import_batches]
 
-    L --> O[Store provisional issues]
-    O --> P[import_validation_issues]
+    S --> T[Store provisional rows]
+    T --> U[import_rows]
+    S --> V[Store provisional issues]
+    V --> W[import_validation_issues]
 
-    L --> Q[Worker claims batch]
-    Q --> R[status VERIFYING]
+    S --> X[Worker claims batch]
+    X --> Y[status VERIFYING]
+    Y --> Z[Read immutable raw XLSX]
+    Z --> AA[XLSX package + security checks]
+    AA --> AB[Independent SheetJS parse]
+    AB --> AC[Authoritative normalization + validation]
 
-    R --> S[Read immutable raw XLSX]
-    S --> T[XLSX package + security checks]
-    T --> U[Independent SheetJS parse]
-    U --> V[Authoritative normalization + validation]
+    AC --> AD[Recompute businessContentSha256<br/>and worker preview fingerprint]
+    AD --> AE{Matches clientPreviewSha256?}
+    AE -->|No| AF[FAILED<br/>integrity mismatch]
+    AE -->|Yes| AG[Replace provisional staging<br/>with authoritative worker result]
 
-    V --> W[Compute worker preview fingerprint]
-    W --> X{Matches clientPreviewSha256?}
+    AG --> AH[Update row and issue aggregates]
+    AH --> AI[VALIDATED or INVALID]
 
-    X -->|No| Y[FAILED<br/>integrity mismatch]
-    X -->|Yes| Z[Replace provisional staging<br/>with authoritative worker result]
+    AI --> AJ[Review workspace]
+    AJ --> AK[Correction / exclusion / restore]
+    AJ --> AL[Warning acknowledgement]
+    AK --> AM[Recompute review state]
+    AL --> AM
 
-    Z --> AA[Update row and issue aggregates]
-    AA --> AB[VALIDATED or INVALID]
+    AM --> AN[Submit for approval]
+    AN --> AO[approval_requests]
+    AO -->|Rejected| AP[Rejected]
+    AO -->|Approved by different user| AQ[Publish]
 
-    AB --> AC[Review workspace]
-    AC --> AD[Correction / exclusion / restore]
-    AC --> AE[Warning acknowledgement]
-
-    AD --> AF[Recompute review state]
-    AE --> AF
-
-    AF --> AG[Submit for approval]
-    AG --> AH[approval_requests]
-
-    AH -->|Rejected| AI[Rejected]
-    AH -->|Approved by different user| AJ[Publish]
-
-    AJ --> AK[holiday_definitions]
-    AJ --> AL[holiday_occurrences]
-    AL --> AM[holiday_occurrence_regions]
-    AL --> AN[holiday_occurrence_dates]
-
-    AJ --> AO[audit_events]
-    AJ --> AP[outbox_events]
+    AQ --> AR[holiday_definitions]
+    AQ --> AS[holiday_occurrences]
+    AS --> AT[holiday_occurrence_regions]
+    AS --> AU[holiday_occurrence_dates]
+    AQ --> AV[audit_events]
+    AQ --> AW[outbox_events]
 ```
 
 ### Persistence by stage
@@ -267,8 +275,9 @@ flowchart TD
 | Stage | Table / storage | What is stored |
 | --- | --- | --- |
 | Local preview | None | Parsed rows, normalized values, and preliminary issues remain in browser memory only |
-| Raw evidence | Artifact storage + `file_artifacts` | Original XLSX bytes in artifact storage; filename, MIME type, size, SHA-256, storage key, retention class, creator, timestamp in DB |
-| Import root | `import_batches` | One row per submission: batch number, source/schema, raw artifact reference, file hash, preview hash, status, row aggregates, uploader, verification/publication timestamps, failure reason |
+| Duplicate preflight | None | `fileSha256`, server-parsed canonical `Holiday_Master` business identity, and blocking checks; duplicates stop before persistence |
+| Raw evidence | Artifact storage + `file_artifacts` | Original accepted XLSX bytes in artifact storage; filename, MIME type, size, SHA-256, storage key, retention class, creator, timestamp in DB |
+| Import root | `import_batches` | One row per accepted unique submission: batch number, source/schema, raw artifact reference, `fileSha256`, `businessContentSha256`, `clientPreviewSha256`, status, row aggregates, uploader, verification/publication timestamps, failure reason |
 | Staging | `import_rows` | One row per source row: raw data, normalized data, row status, exclusion state, edit actor and timestamps |
 | Validation | `import_validation_issues` | ERROR/WARNING/INFO, code, field, rejected value, message, acknowledgement actor and timestamp |
 | Reference resolution | `calendar_regions`, `calendar_region_aliases` | Canonical region registry used during normalization and validation |
@@ -278,48 +287,55 @@ flowchart TD
 
 ### Import batch boundary
 
-One submitted workbook creates one `import_batches` row.
+One accepted unique workbook creates one `import_batches` row. A workbook blocked as `EXACT_FILE_DUPLICATE` or `SAME_HOLIDAY_DATA` creates no new artifact and no new import batch.
 
 ```text
-1 submitted XLSX
+1 accepted unique XLSX
   -> 1 file_artifacts record for the raw evidence
   -> 1 import_batches root record
   -> N import_rows
   -> N import_validation_issues
   -> 0..1 active approval lifecycle
   -> N published holiday occurrences
+
+blocked duplicate XLSX
+  -> 0 new file_artifacts
+  -> 0 new import_batches
 ```
 
-The original XLSX is evidence. The import batch is the governed processing snapshot for that submission.
+The original XLSX is evidence. The import batch is the governed processing snapshot for an accepted unique submission.
 
 ### Hash responsibilities
 
 | Hash | Scope | Purpose |
 | --- | --- | --- |
-| `fileSha256` | Entire raw XLSX byte stream | Detect exact binary re-upload and identify immutable file evidence |
+| `fileSha256` | Entire raw XLSX byte stream | Detect exact binary re-upload, identify immutable file evidence, and hard-block `EXACT_FILE_DUPLICATE` |
 | `clientPreviewSha256` | Deterministic complete browser preview payload | Verify browser preview against the worker's independent parse |
-| `approval contentHash` | Frozen reviewed staging state | Ensure the content approved is the content later published |
-| `businessContentSha256` | Canonical normalized authoritative `Holiday_Master` business content | Worker-authoritative fingerprint for semantic duplicate lookup when XLSX bytes differ but holiday business data is equivalent |
+| approval `contentHash` | Frozen reviewed staging state | Ensure the content approved is the content later published |
+| `businessContentSha256` | Canonical normalized authoritative `Holiday_Master` business content | Hard-block semantically identical holiday datasets across byte-different workbooks and retain a worker-recomputed business fingerprint |
 
-`businessContentSha256` is persisted on `import_batches` and is computed only by the verification worker from its independent parse of the immutable raw XLSX. It is nullable when the worker cannot form complete publishable business content. It does not replace `fileSha256` or `clientPreviewSha256`.
+`businessContentSha256` is computed synchronously during submit preflight from the server's `Holiday_Master` parse, persisted on an accepted batch, and independently recomputed by the worker from immutable raw XLSX evidence. It is nullable when complete publishable business content cannot be formed. It does not replace `fileSha256`, `clientPreviewSha256`, or approval `contentHash`.
 
-This slice persists the worker-authoritative fingerprint. Automatic `SAME_HOLIDAY_DATA` issue generation is a separate duplicate-policy step.
+The business hash contains only canonical region codes, normalized holiday name, start date, and end date. Region codes and rows are deterministically deduplicated/sorted before hashing. It intentionally excludes workbook metadata, filename, formatting, row position, source row ID, source reference, remarks/notes, legacy `Day`/`Tag`, and every sheet other than `Holiday_Master`.
 
 ### Duplicate semantics
 
 ```text
 same fileSha256
-  -> EXACT_FILE_DUPLICATE
+  -> 409 EXACT_FILE_DUPLICATE
+  -> no new artifact or batch
 
 different fileSha256
-same businessContentSha256
-  -> SAME_HOLIDAY_DATA
+same businessContentSha256 as an UPLOADED / VERIFYING / VALIDATED batch
+  -> 409 SAME_HOLIDAY_DATA
+  -> no new artifact or batch
 
 different businessContentSha256
   -> materially different business import
+  -> may proceed subject to normal validation
 ```
 
-Semantic business hashing must be based on deterministic normalized authoritative values, not workbook formatting, metadata, filename, row position, Day, or Tag.
+Removing `_ATI_PH_META`, renaming the workbook, changing Excel formatting, reordering rows, or adding/removing unrelated sheets does not create a new holiday dataset when canonical authoritative `Holiday_Master` content is unchanged. The normal import flow has no `confirmDuplicate` or semantic-duplicate override; any future reprocessing capability must be a separate governed/admin recovery flow.
 
 ### Review and publication invariant
 
@@ -354,9 +370,9 @@ Official ATI-PH templates include a worksheet named `_ATI_PH_META`.
 | `template_type` | `PUBLIC_HOLIDAY_IMPORT` |
 | `data_sheet` | `Holiday_Master` |
 
-The metadata worksheet identifies the workbook contract and schema version. It is not an authenticity or security boundary; the server still independently reparses and validates the raw workbook.
+The metadata worksheet identifies the workbook contract and schema version. It is not an authenticity or security boundary; the server still independently reparses and validates the raw workbook. `_ATI_PH_META` is excluded from `businessContentSha256`, so adding or removing the metadata sheet cannot by itself create a distinct holiday business dataset.
 
-Legacy workbooks without `_ATI_PH_META` remain supported. The parser records this as informational compatibility evidence (`LEGACY_SCHEMA_ASSUMED`) rather than a warning. If the metadata worksheet is present but contains an unsupported or contradictory contract value, parsing fails closed.
+Legacy workbooks without `_ATI_PH_META` remain supported. The parser records this as informational compatibility evidence (`LEGACY_SCHEMA_ASSUMED`) rather than a warning. If the metadata worksheet is present but contains an unsupported or contradictory contract value, parsing fails closed. A governed workbook and a supported legacy workbook with the same canonical authoritative `Holiday_Master` content therefore resolve to the same business duplicate identity.
 
 Official files:
 

@@ -1,11 +1,26 @@
 import { z } from "zod";
 
 import {
+  GOVERNED_HOLIDAY_SCHEMA_VERSION,
   HOLIDAY_IMPORT_SCHEMA_NAME,
   HOLIDAY_SOURCE_SHEET,
   LEGACY_HOLIDAY_SCHEMA_VERSION,
   type ParsedHolidayWorkbook,
 } from "@/imports/contracts";
+
+export type ClientPreviewValidationCode =
+  | "INVALID_WORKBOOK_PREVIEW"
+  | "UNSUPPORTED_IMPORT_SCHEMA";
+
+export class ClientPreviewValidationError extends Error {
+  readonly code: ClientPreviewValidationCode;
+
+  constructor(code: ClientPreviewValidationCode) {
+    super(code);
+    this.name = "ClientPreviewValidationError";
+    this.code = code;
+  }
+}
 
 const issueSchema = z.object({
   severity: z.enum(["ERROR", "WARNING", "INFO"]),
@@ -61,22 +76,20 @@ export function parseClientPreviewJson(
   try {
     decoded = JSON.parse(value);
   } catch {
-    throw new Error("Client preview payload is not valid JSON.");
+    throw new ClientPreviewValidationError("INVALID_WORKBOOK_PREVIEW");
   }
 
   const parsed = previewSchema.safeParse(decoded);
   if (!parsed.success) {
-    throw new Error(
-      "Client preview payload does not match the governed import contract.",
-    );
+    throw new ClientPreviewValidationError("INVALID_WORKBOOK_PREVIEW");
   }
 
   if (
     parsed.data.schemaName !== HOLIDAY_IMPORT_SCHEMA_NAME ||
-    parsed.data.schemaVersion !== LEGACY_HOLIDAY_SCHEMA_VERSION ||
+    !isSupportedClientPreviewSchemaVersion(parsed.data.schemaVersion) ||
     parsed.data.sourceSheet !== HOLIDAY_SOURCE_SHEET
   ) {
-    throw new Error("Client preview schema is not supported.");
+    throw new ClientPreviewValidationError("UNSUPPORTED_IMPORT_SCHEMA");
   }
 
   const rowNumbers = new Set<number>();
@@ -86,9 +99,7 @@ export function parseClientPreviewJson(
       row.sourceSheet !== HOLIDAY_SOURCE_SHEET ||
       rowNumbers.has(row.sourceRowNumber)
     ) {
-      throw new Error(
-        "Client preview rows contain invalid source lineage.",
-      );
+      throw new ClientPreviewValidationError("INVALID_WORKBOOK_PREVIEW");
     }
 
     rowNumbers.add(row.sourceRowNumber);
@@ -99,11 +110,27 @@ export function parseClientPreviewJson(
       issue.sourceRowNumber &&
       !rowNumbers.has(issue.sourceRowNumber)
     ) {
-      throw new Error(
-        "Client preview issue references an unknown source row.",
-      );
+      throw new ClientPreviewValidationError("INVALID_WORKBOOK_PREVIEW");
     }
   }
 
   return parsed.data;
+}
+
+export function isSupportedClientPreviewSchemaVersion(
+  value: string,
+): boolean {
+  return (
+    value === GOVERNED_HOLIDAY_SCHEMA_VERSION ||
+    value === LEGACY_HOLIDAY_SCHEMA_VERSION
+  );
+}
+
+export function previewHasBlockingErrors(
+  preview: ParsedHolidayWorkbook,
+): boolean {
+  return (
+    preview.rows.some((row) => row.status === "INVALID") ||
+    preview.issues.some((issue) => issue.severity === "ERROR")
+  );
 }

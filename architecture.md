@@ -3,8 +3,8 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.15 |
-| Date | 2026-08-15 |
+| Version | 0.3.16 |
+| Date | 2026-08-17 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
 | Web platform | Next.js 16.3.1 App Router, React 19, TypeScript |
@@ -157,21 +157,26 @@ notification_run
 
 Turn an uploaded external file into validated staging data without allowing unvalidated input into canonical records
 
-#### Implemented ingestion baseline (2026-08-15)
+#### Implemented ingestion baseline (2026-08-17)
 
 `POST /api/imports` now implements the first safe vertical slice:
 
 - Operator or Administrator authorization is checked server-side
 - `.xlsx` extension, size, ZIP signature, CRC readability, macro/VBA absence, required sheet, and required headers are validated
-- SHA-256 duplicate detection requires explicit confirmation before identical content can be reprocessed
-- Original bytes are stored once under an immutable local-storage key; database failure removes only the unregistered file
+- The complete raw XLSX is hashed as `fileSha256`; an existing identical hash hard-blocks `EXACT_FILE_DUPLICATE` before preview validation or persistence
+- The server validates XLSX package safety and the workbook contract, treats `Holiday_Master` as the only business-data sheet, resolves active calendar-region aliases, and computes `businessContentSha256` from canonical region codes, normalized holiday name, start date, and end date
+- An existing `UPLOADED`, `VERIFYING`, or `VALIDATED` batch with the same `businessContentSha256` hard-blocks `SAME_HOLIDAY_DATA`, even when XLSX bytes differ
+- Business duplicate identity ignores workbook metadata, filename, formatting, row order, unrelated sheets, source row ID, source reference, remarks, and legacy `Day`/`Tag` values
+- Exact and business duplicate identities are rechecked under a transaction-scoped PostgreSQL advisory lock before persistence, preventing concurrent duplicate batches
+- Accepted raw bytes are stored once under an immutable local-storage key; database failure removes only the unregistered file
 - `Holiday_Master` headers are mapped by approved aliases and column order is ignored
 - Raw rows and normalized staging rows are stored separately
 - Multiple legacy regions are split and resolved to canonical region codes
 - Region resolution reads active aliases from the Public Holiday calendar-region registry; inactive aliases and inactive regions fail resolution
 - Typed Excel dates and ISO dates are accepted; formula cells cannot provide authoritative fields
 - `Day` and `Tag` remain raw evidence and are recomputed only during canonical publication
-- Batch, row, issue, audit, and successful `ImportBatchValidated` outbox records are committed atomically
+- Accepted batches persist `fileSha256`, `businessContentSha256`, and `clientPreviewSha256`; batch, row, issue, and upload-audit records commit atomically as provisional `UPLOADED` state
+- The worker independently reparses immutable raw evidence, recomputes the business-content and preview fingerprints, and emits `ImportBatchValidated` only after authoritative verification succeeds
 - Invalid batches remain reviewable but cannot emit the validated event
 
 The current storage adapter is appropriate for local development. Production must mount `ARTIFACT_STORAGE_DIR` on durable encrypted storage or replace the adapter without changing the import contract. Calendar-region and alias administration is database-managed and Administrator-only. Users with `import.read` can download a deterministic complete CSV validation report and the registered immutable raw workbook for a batch. Raw download re-hashes the stored bytes and refuses release when SHA-256 does not match the registered artifact evidence; both report and raw-workbook releases create audit events before bytes are returned. Warning acknowledgement is persisted against the validation issue with actor/time and a same-transaction audit event; ERROR issues cannot be acknowledged. Controlled staging correction now mutates normalized staging only, never raw evidence. Correction, exclusion, and restoration run a deterministic full-batch revalidation against the active canonical region registry; unchanged warning acknowledgements are preserved by stable issue identity, changed warnings require acknowledgement again, row and batch validation states are recomputed transactionally, and validation-state changes emit an outbox event. Maker-checker approval is now implemented through a reusable approval-request record containing the resource identity and a deterministic SHA-256 content hash. Submission freezes staging and warning acknowledgement; the requester cannot decide the same request; decision recomputes the hash before commit; rejection unfreezes the import for correction and resubmission; approval stays frozen for canonical publication. Request and decision transitions commit their audit and outbox events transactionally. Canonical holiday publication is now implemented after approved frozen content. Each valid staging row creates exactly one canonical occurrence linked to its source import row and batch, one relation per canonical region, and one derived record per inclusive calendar date. Weekday/weekend classification is recomputed from the canonical date. Publication executes in a serializable transaction, verifies the approved content hash and active region registry, marks the batch published, and commits audit/outbox evidence atomically. `sourceImportRowId` uniqueness plus `publishedAt` replay handling makes repeated publication idempotent. The batch review UI exposes source-to-canonical lineage and expanded dates.

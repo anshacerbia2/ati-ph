@@ -94,21 +94,34 @@ npm run build
 
 ## Governed holiday import
 
-The dashboard now accepts `.xlsx` uploads from users with the `OPERATOR` or
-`ADMINISTRATOR` application role. The first Phase 1 slice stores the original
-workbook immutably, stages `Holiday_Master` rows, normalizes legacy multi-region
-values, and records row/batch validation issues. It does not publish canonical
-holidays or send email.
+The dashboard accepts `.xlsx` uploads from users with the `OPERATOR` or
+`ADMINISTRATOR` application role. The current Phase 1 flow previews
+`Holiday_Master` in the browser, performs server-side XLSX and duplicate
+preflight, stores accepted raw evidence immutably, stages provisional rows and
+issues, verifies the stored workbook independently in the worker, supports
+maker-checker approval, and publishes canonical holiday occurrences. Email
+delivery remains outside Phase 1.
+
+Duplicate identity is deliberately split into two layers:
+
+- `fileSha256` identifies byte-identical XLSX evidence and hard-blocks
+  `EXACT_FILE_DUPLICATE`
+- `businessContentSha256` identifies canonical authoritative `Holiday_Master`
+  business content and hard-blocks `SAME_HOLIDAY_DATA`, even when workbook
+  metadata, filename, formatting, row order, or unrelated sheets differ
+- Source row ID, source reference, remarks, legacy `Day`/`Tag`, and sheets other
+  than `Holiday_Master` do not create a new holiday business dataset
+- The normal import flow has no exact-duplicate or semantic-duplicate confirmation override
 
 Development artifacts are written under `ARTIFACT_STORAGE_DIR` (default
 `./storage/artifacts`) and are ignored by Git. Production must use a durable,
 encrypted mounted path or a replacement storage adapter. Set
 `IMPORT_MAX_FILE_SIZE_BYTES` to the approved upload limit.
 
-The migration `20260814220557_governed_import_foundation` adds the artifact,
-import batch, staging row, and validation issue tables. Existing environments
-must run `npm run db:deploy`; use `npm run db:migrate` only while developing new
-migrations.
+Phase 1 database changes are represented by the committed Prisma migrations
+under `prisma/migrations`, including preview verification and
+`businessContentSha256`. Existing environments must run `npm run db:deploy`;
+use `npm run db:migrate` only while developing new migrations.
 
 The accepted workbook contract and current limitations are documented in
 `docs/GOVERNED-IMPORT-CONTRACT.md`.
