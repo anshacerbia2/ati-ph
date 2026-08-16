@@ -36,6 +36,7 @@ export default async function ImportsPage() {
         invalidRows: true,
         warningCount: true,
         uploadedAt: true,
+        publishedAt: true,
         uploadedBy: {
           select: {
             displayName: true,
@@ -59,6 +60,36 @@ export default async function ImportsPage() {
     }),
   ]);
 
+  const latestApprovalStatusByBatchId = new Map<
+    string,
+    "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"
+  >();
+
+  if (recentImports.length > 0) {
+    const approvals = await db.approvalRequest.findMany({
+      where: {
+        resourceType: "ImportBatch",
+        resourceId: {
+          in: recentImports.map((batch) => batch.id),
+        },
+      },
+      orderBy: { requestedAt: "desc" },
+      select: {
+        resourceId: true,
+        status: true,
+      },
+    });
+
+    for (const approval of approvals) {
+      if (!latestApprovalStatusByBatchId.has(approval.resourceId)) {
+        latestApprovalStatusByBatchId.set(
+          approval.resourceId,
+          approval.status,
+        );
+      }
+    }
+  }
+
   return (
     <div className="page-stack">
       <PageHeader
@@ -76,6 +107,10 @@ export default async function ImportsPage() {
         recentImports={recentImports.map((batch) => ({
           ...batch,
           uploadedAt: batch.uploadedAt.toISOString(),
+          approvalStatus:
+            latestApprovalStatusByBatchId.get(batch.id) ??
+            "NOT_SUBMITTED",
+          publishedAt: batch.publishedAt?.toISOString() ?? null,
           uploadedBy:
             batch.uploadedBy.displayName ?? batch.uploadedBy.email,
         }))}

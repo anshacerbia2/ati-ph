@@ -5,6 +5,12 @@ import { useState } from "react";
 
 import { mountedPath } from "@/config/app";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
+import {
+  validationFieldLabel,
+  validationIssueTitle,
+} from "@/imports/issue-display";
+
+const REVIEW_PAGE_SIZE = 10;
 
 type ReviewIssue = {
   id: string;
@@ -460,12 +466,16 @@ function ApprovalPanel({
               {latest?.status === "REJECTED"
                 ? "Rejected batch can be corrected and resubmitted"
                 : eligible
-                  ? "Batch is ready for submission"
+                  ? canSubmit
+                    ? "Batch is ready for submission"
+                    : "Awaiting requester submission"
                   : "Batch is not ready for submission"}
             </strong>
             <span>
               {eligible
-                ? "All blocking errors are resolved and warnings are acknowledged."
+                ? canSubmit
+                  ? "All blocking errors are resolved and warnings are acknowledged."
+                  : "No approval request has been submitted for this batch yet."
                 : "Resolve invalid rows and acknowledge every warning first."}
             </span>
             {latest?.status === "REJECTED" &&
@@ -537,6 +547,8 @@ function PublicationLineage({
 }: {
   batch: ReviewBatch;
 }) {
+  const [publicationPage, setPublicationPage] = useState(1);
+
   if (!batch.publishedAt) {
     return null;
   }
@@ -549,6 +561,26 @@ function PublicationLineage({
     (total, occurrence) =>
       total + occurrence.regionCodes.length,
     0,
+  );
+  const publicationPageCount = Math.max(
+    1,
+    Math.ceil(
+      batch.publishedOccurrences.length / REVIEW_PAGE_SIZE,
+    ),
+  );
+  const safePublicationPage = Math.min(
+    publicationPage,
+    publicationPageCount,
+  );
+  const publicationPageStart =
+    (safePublicationPage - 1) * REVIEW_PAGE_SIZE;
+  const publicationPageRows = batch.publishedOccurrences.slice(
+    publicationPageStart,
+    publicationPageStart + REVIEW_PAGE_SIZE,
+  );
+  const publicationPageEnd = Math.min(
+    publicationPageStart + publicationPageRows.length,
+    batch.publishedOccurrences.length,
   );
 
   return (
@@ -587,38 +619,78 @@ function PublicationLineage({
         </div>
       </dl>
 
-      <div className="publication-lineage__list">
-        {batch.publishedOccurrences.map((occurrence) => (
-          <article
-            className="publication-lineage__row"
-            key={occurrence.id}
-          >
-            <div>
-              <strong>{occurrence.holidayName}</strong>
-              <span>
-                Source row {occurrence.sourceRowNumber} ·{" "}
-                {occurrence.startDate} → {occurrence.endDate}
-              </span>
-            </div>
-
-            <div className="publication-lineage__regions">
-              {occurrence.regionCodes.map((code) => (
-                <span className="region-alias-chip" key={code}>
-                  {code}
-                </span>
-              ))}
-            </div>
-
-            <div className="publication-lineage__dates">
-              {occurrence.dates.map((date) => (
-                <span key={date.date}>
-                  {date.date} · {date.dayOfWeek} · {date.dayType}
-                </span>
-              ))}
-            </div>
-          </article>
-        ))}
+      <div className="publication-lineage__table-wrap">
+        <table className="publication-lineage__table">
+          <colgroup>
+            <col className="publication-lineage__col--holiday" />
+            <col className="publication-lineage__col--source" />
+            <col className="publication-lineage__col--regions" />
+            <col className="publication-lineage__col--dates" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Holiday</th>
+              <th scope="col">Source</th>
+              <th scope="col">Regions</th>
+              <th scope="col">Canonical dates</th>
+            </tr>
+          </thead>
+          <tbody>
+            {publicationPageRows.map((occurrence) => (
+              <tr key={occurrence.id}>
+                <td>
+                  <div className="publication-lineage__holiday">
+                    <strong>{occurrence.holidayName}</strong>
+                    <span>{occurrence.calendarYear}</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="publication-lineage__source">
+                    <strong>
+                      Source row {occurrence.sourceRowNumber}
+                    </strong>
+                    <span>
+                      {occurrence.startDate} → {occurrence.endDate}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <div className="publication-lineage__regions">
+                    {occurrence.regionCodes.map((code) => (
+                      <span
+                        className="region-alias-chip"
+                        key={code}
+                      >
+                        {code}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  <div className="publication-lineage__dates">
+                    {occurrence.dates.map((date) => (
+                      <span key={date.date}>
+                        {date.date} · {date.dayOfWeek} ·{" "}
+                        {date.dayType}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      <ReviewPagination
+        end={publicationPageEnd}
+        label="Occurrences"
+        onPageChange={setPublicationPage}
+        page={safePublicationPage}
+        pageCount={publicationPageCount}
+        start={publicationPageStart}
+        total={batch.publishedOccurrences.length}
+      />
     </section>
   );
 }
@@ -640,6 +712,26 @@ function StagingRows({
     body: unknown,
   ) => Promise<boolean>;
 }) {
+  const [stagingPage, setStagingPage] = useState(1);
+  const stagingPageCount = Math.max(
+    1,
+    Math.ceil(batch.rows.length / REVIEW_PAGE_SIZE),
+  );
+  const safeStagingPage = Math.min(
+    stagingPage,
+    stagingPageCount,
+  );
+  const stagingPageStart =
+    (safeStagingPage - 1) * REVIEW_PAGE_SIZE;
+  const stagingPageRows = batch.rows.slice(
+    stagingPageStart,
+    stagingPageStart + REVIEW_PAGE_SIZE,
+  );
+  const stagingPageEnd = Math.min(
+    stagingPageStart + stagingPageRows.length,
+    batch.rows.length,
+  );
+
   return (
     <section
       className="ati-card import-staging"
@@ -664,7 +756,7 @@ function StagingRows({
       </div>
 
       <div className="staging-row-list">
-        {batch.rows.map((row) => (
+        {stagingPageRows.map((row) => (
           <StagingRowEditor
             activeRegions={activeRegions}
             batchId={batch.id}
@@ -676,6 +768,16 @@ function StagingRows({
           />
         ))}
       </div>
+
+      <ReviewPagination
+        end={stagingPageEnd}
+        label="Rows"
+        onPageChange={setStagingPage}
+        page={safeStagingPage}
+        pageCount={stagingPageCount}
+        start={stagingPageStart}
+        total={batch.rows.length}
+      />
     </section>
   );
 }
@@ -1054,6 +1156,26 @@ function ValidationIssues({
     body: unknown,
   ) => Promise<boolean>;
 }) {
+  const [validationPage, setValidationPage] = useState(1);
+  const validationPageCount = Math.max(
+    1,
+    Math.ceil(batch.issues.length / REVIEW_PAGE_SIZE),
+  );
+  const safeValidationPage = Math.min(
+    validationPage,
+    validationPageCount,
+  );
+  const validationPageStart =
+    (safeValidationPage - 1) * REVIEW_PAGE_SIZE;
+  const validationPageIssues = batch.issues.slice(
+    validationPageStart,
+    validationPageStart + REVIEW_PAGE_SIZE,
+  );
+  const validationPageEnd = Math.min(
+    validationPageStart + validationPageIssues.length,
+    batch.issues.length,
+  );
+
   return (
     <section className="ati-card import-review-issues">
       <div className="import-review-issues__header">
@@ -1076,7 +1198,7 @@ function ValidationIssues({
         </p>
       ) : (
         <div className="import-review-issue-list">
-          {batch.issues.map((issue) => (
+          {validationPageIssues.map((issue) => (
             <article
               className="import-review-issue"
               key={issue.id}
@@ -1090,14 +1212,16 @@ function ValidationIssues({
               </div>
 
               <div className="import-review-issue__body">
-                <strong>{issue.errorCode}</strong>
+                <strong title={issue.errorCode}>
+                  {validationIssueTitle(issue.errorCode)}
+                </strong>
                 <p>{issue.message}</p>
                 <span>
                   {issue.sourceRowNumber
                     ? `${issue.sourceSheet ?? "Row"} · row ${issue.sourceRowNumber}`
                     : "Batch-level issue"}
                   {issue.fieldName
-                    ? ` · ${issue.fieldName}`
+                    ? ` · ${validationFieldLabel(issue.fieldName)}`
                     : ""}
                 </span>
               </div>
@@ -1162,7 +1286,76 @@ function ValidationIssues({
           ))}
         </div>
       )}
+
+      <ReviewPagination
+        end={validationPageEnd}
+        label="Issues"
+        onPageChange={setValidationPage}
+        page={safeValidationPage}
+        pageCount={validationPageCount}
+        start={validationPageStart}
+        total={batch.issues.length}
+      />
     </section>
+  );
+}
+
+function ReviewPagination({
+  label,
+  page,
+  pageCount,
+  start,
+  end,
+  total,
+  onPageChange,
+}: {
+  label: string;
+  page: number;
+  pageCount: number;
+  start: number;
+  end: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (pageCount <= 1) {
+    return null;
+  }
+
+  return (
+    <div
+      className="review-pagination"
+      aria-label={label + " pagination"}
+    >
+      <span>
+        {label} {start + 1}-{end} of {total}
+      </span>
+
+      <div className="review-pagination__actions">
+        <button
+          className="ati-btn ati-btn--compact ati-btn--subtle"
+          disabled={page <= 1}
+          onClick={() => onPageChange(Math.max(1, page - 1))}
+          type="button"
+        >
+          Previous
+        </button>
+
+        <span>
+          Page {page} of {pageCount}
+        </span>
+
+        <button
+          className="ati-btn ati-btn--compact ati-btn--subtle"
+          disabled={page >= pageCount}
+          onClick={() =>
+            onPageChange(Math.min(pageCount, page + 1))
+          }
+          type="button"
+        >
+          Next
+        </button>
+      </div>
+    </div>
   );
 }
 
