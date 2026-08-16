@@ -128,6 +128,8 @@ export async function PATCH(
   if (
     batch.submittedAt ||
     batch.publishedAt ||
+    batch.status === "UPLOADED" ||
+    batch.status === "VERIFYING" ||
     batch.status === "FAILED"
   ) {
     return Response.json(

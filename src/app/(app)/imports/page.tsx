@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 
 export default async function ImportsPage() {
   const session = await getCurrentSession();
+
   if (!session) {
     redirect("/api/auth/login");
   }
@@ -21,39 +22,62 @@ export default async function ImportsPage() {
     return <AccessDenied />;
   }
 
-  const recentImports = await db.importBatch.findMany({
-    orderBy: { uploadedAt: "desc" },
-    take: 20,
-    select: {
-      id: true,
-      batchNumber: true,
-      sourceName: true,
-      status: true,
-      totalRows: true,
-      invalidRows: true,
-      warningCount: true,
-      uploadedAt: true,
-      uploadedBy: {
-        select: {
-          email: true,
-          displayName: true,
+  const [recentImports, previewAliases] = await Promise.all([
+    db.importBatch.findMany({
+      orderBy: { uploadedAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        batchNumber: true,
+        sourceName: true,
+        status: true,
+        totalRows: true,
+        validRows: true,
+        invalidRows: true,
+        warningCount: true,
+        uploadedAt: true,
+        uploadedBy: {
+          select: {
+            displayName: true,
+            email: true,
+          },
         },
       },
-    },
-  });
+    }),
+    db.calendarRegionAlias.findMany({
+      where: {
+        isActive: true,
+        region: { isActive: true },
+      },
+      orderBy: { normalizedAlias: "asc" },
+      select: {
+        normalizedAlias: true,
+        region: {
+          select: { code: true },
+        },
+      },
+    }),
+  ]);
 
   return (
     <div className="page-stack">
       <PageHeader
-        description="Stage the governed Holiday_Master workbook and keep raw evidence separate from normalized validation data."
+        description="Preview Holiday_Master locally, then submit the raw workbook and confirmed normalized payload for authoritative server verification."
         eyebrow="Operations"
         title="Governed imports"
       />
+
       <ImportWorkspace
         canUpload={permissions.has(PERMISSIONS.IMPORT_CREATE)}
+        previewRegionAliases={previewAliases.map((entry) => ({
+          normalizedAlias: entry.normalizedAlias,
+          regionCode: entry.region.code,
+        }))}
         recentImports={recentImports.map((batch) => ({
           ...batch,
           uploadedAt: batch.uploadedAt.toISOString(),
+          uploadedBy:
+            batch.uploadedBy.displayName ?? batch.uploadedBy.email,
         }))}
       />
     </div>

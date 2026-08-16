@@ -57,6 +57,7 @@ export async function PATCH(
           batchNumber: true,
           submittedAt: true,
           publishedAt: true,
+          status: true,
         },
       },
     },
@@ -71,7 +72,10 @@ export async function PATCH(
 
   if (
     issue.importBatch.submittedAt ||
-    issue.importBatch.publishedAt
+    issue.importBatch.publishedAt ||
+    issue.importBatch.status === "UPLOADED" ||
+    issue.importBatch.status === "VERIFYING" ||
+    issue.importBatch.status === "FAILED"
   ) {
     return Response.json(
       {

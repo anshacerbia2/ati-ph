@@ -65,6 +65,24 @@ Keycloak must allow this exact callback URL:
 For production, that resolves to
 `https://one.atibusinessgroup.com/apps/ph-notification/app/api/auth/callback/keycloak`.
 
+## Local role assignment
+
+ATI PH application roles are stored locally in PostgreSQL. A user must sign in through Keycloak at least once before a local role can be attached.
+
+Grant one role:
+
+```bash
+npm run authz:grant -- --email user@example.com --role OPERATOR
+```
+
+Grant another role to the same user by running the command again with a different role:
+
+```bash
+npm run authz:grant -- --email user@example.com --role APPROVER
+```
+
+Supported system roles are `ADMINISTRATOR`, `OPERATOR`, `APPROVER`, and `AUDITOR`. One user may hold multiple roles. Maker-checker still requires the approval requester and approver to be different users even when one account holds both OPERATOR and APPROVER.
+
 ## Validation
 
 ```text
@@ -94,6 +112,11 @@ migrations.
 
 The accepted workbook contract and current limitations are documented in
 `docs/GOVERNED-IMPORT-CONTRACT.md`.
+
+The official governed workbook files are:
+
+- `docs/ATI-PH-Import-Template-Governed.xlsx`
+- `docs/ATI-PH-Example-Import-Governed.xlsx`
 
 See `architecture.md` and `plan.md` for the implementation boundaries and
 delivery phases.

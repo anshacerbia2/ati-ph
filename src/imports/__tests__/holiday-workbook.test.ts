@@ -1,12 +1,12 @@
-import ExcelJS from "exceljs";
 import JSZip from "jszip";
+import { utils, write } from "xlsx";
 import { describe, expect, it } from "vitest";
 
 import {
-  assertSafeXlsxPackage,
   parseHolidayWorkbook as parseHolidayWorkbookRaw,
   WorkbookContractError,
 } from "@/imports/holiday-workbook";
+import { assertSafeXlsxPackage } from "@/imports/xlsx-safety";
 
 const TEST_REGION_ALIASES = new Map<string, string>([
   ["australia", "AU"],
@@ -29,80 +29,151 @@ const TEST_REGION_ALIASES = new Map<string, string>([
 async function parseHolidayWorkbook(bytes: Uint8Array) {
   return parseHolidayWorkbookRaw(bytes, {
     regionAliases: TEST_REGION_ALIASES,
+    rejectSampleRows: true,
   });
 }
 
 describe("holiday workbook import", () => {
-  it("maps legacy headers, normalizes regions, and ignores derived fields", async () => {
-    const bytes = await workbookBytes([
+  it("treats legacy compatibility fallback as informational", async () => {
+    const result = await parseHolidayWorkbook(
+      workbookBytes([
+        [
+          "AU",
+          "Legacy Holiday",
+          new Date("2027-01-01T00:00:00.000Z"),
+          new Date("2027-01-01T00:00:00.000Z"),
+          "",
+          "",
+          "",
+        ],
+      ]),
+    );
+
+    const legacyIssue = result.issues.find(
+      (issue) => issue.code === "LEGACY_SCHEMA_ASSUMED",
+    );
+
+    expect(legacyIssue?.severity).toBe("INFO");
+    expect(result.schemaVersion).toBe("legacy-1.0");
+  });
+
+  it("recognizes governed workbook metadata", async () => {
+    const result = await parseHolidayWorkbook(
+      workbookBytes(
+        [
+          [
+            "AU",
+            "Governed Holiday",
+            new Date("2027-01-01T00:00:00.000Z"),
+            new Date("2027-01-01T00:00:00.000Z"),
+            "",
+            "",
+            "",
+          ],
+        ],
+        true,
+      ),
+    );
+
+    expect(result.schemaVersion).toBe("1.0");
+    expect(
+      result.issues.some(
+        (issue) => issue.code === "LEGACY_SCHEMA_ASSUMED",
+      ),
+    ).toBe(false);
+  });
+
+  it(
+    "maps legacy headers, normalizes regions, and ignores derived fields",
+    async () => {
+      const bytes = workbookBytes([
+        [
+          "Australia, Indonesia",
+          "New Year",
+          new Date("2027-01-01T00:00:00.000Z"),
+          new Date("2027-01-01T00:00:00.000Z"),
+          "Imported",
+          "Fri",
+          "Weekdays",
+        ],
+      ]);
+
+      const result = await parseHolidayWorkbook(bytes);
+
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]).toMatchObject({
+        sourceRowNumber: 2,
+        status: "VALID",
+        normalizedData: {
+          regionCodes: ["AU", "ID"],
+          holidayName: "New Year",
+          startDate: "2027-01-01",
+          endDate: "2027-01-01",
+        },
+      });
+      expect(result.issues.map((issue) => issue.code)).toContain(
+        "MULTI_REGION_NORMALIZED",
+      );
+    },
+  );
+
+  it("blocks an unknown region and an invalid date period", async () => {
+    const result = await parseHolidayWorkbook(
+      workbookBytes([
+        [
+          "Atlantis",
+          "Founders Day",
+          new Date("2027-03-02T00:00:00.000Z"),
+          new Date("2027-03-01T00:00:00.000Z"),
+          "",
+          "Mon",
+          "Weekdays",
+        ],
+      ]),
+    );
+
+    expect(result.rows[0].status).toBe("INVALID");
+    expect(result.issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "UNKNOWN_REGION",
+        "END_DATE_BEFORE_START_DATE",
+      ]),
+    );
+  });
+
+  it("rejects formulas in authoritative fields", async () => {
+    const sheet = utils.aoa_to_sheet([
+      headers,
       [
-        "Australia, Indonesia",
-        "New Year",
+        "Indonesia",
+        "Formula Holiday",
+        44927,
         new Date("2027-01-01T00:00:00.000Z"),
-        new Date("2027-01-01T00:00:00.000Z"),
-        "Imported",
+        "",
         "Fri",
         "Weekdays",
       ],
     ]);
 
-    const result = await parseHolidayWorkbook(bytes);
+    sheet.C2.f = "DATE(2027,1,1)";
 
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]).toMatchObject({
-      sourceRowNumber: 2,
-      status: "VALID",
-      normalizedData: {
-        regionCodes: ["AU", "ID"],
-        holidayName: "New Year",
-        startDate: "2027-01-01",
-        endDate: "2027-01-01",
-      },
-    });
-    expect(result.issues.map((issue) => issue.code)).toContain("MULTI_REGION_NORMALIZED");
-  });
-
-  it("blocks an unknown region and an invalid date period", async () => {
-    const bytes = await workbookBytes([
-      [
-        "Atlantis",
-        "Founders Day",
-        new Date("2027-03-02T00:00:00.000Z"),
-        new Date("2027-03-01T00:00:00.000Z"),
-        "",
-        "Mon",
-        "Weekdays",
-      ],
-    ]);
-
-    const result = await parseHolidayWorkbook(bytes);
-
-    expect(result.rows[0].status).toBe("INVALID");
-    expect(result.issues.map((issue) => issue.code)).toEqual(
-      expect.arrayContaining(["UNKNOWN_REGION", "END_DATE_BEFORE_START_DATE"]),
-    );
-  });
-
-  it("rejects formulas in authoritative fields", async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Holiday_Master");
-    sheet.addRow(headers);
-    sheet.addRow([
-      "Indonesia",
-      "Formula Holiday",
-      { formula: "=DATE(2027,1,1)", result: new Date("2027-01-01T00:00:00.000Z") },
-      new Date("2027-01-01T00:00:00.000Z"),
-      "",
-      "Fri",
-      "Weekdays",
-    ]);
+    const workbook = utils.book_new();
+    utils.book_append_sheet(workbook, sheet, "Holiday_Master");
 
     const result = await parseHolidayWorkbook(
-      new Uint8Array(await workbook.xlsx.writeBuffer()),
+      new Uint8Array(
+        write(workbook, {
+          type: "array",
+          bookType: "xlsx",
+          cellDates: true,
+        }),
+      ),
     );
 
     expect(result.rows[0].status).toBe("INVALID");
-    expect(result.issues.map((issue) => issue.code)).toContain("FORMULA_NOT_ALLOWED");
+    expect(result.issues.map((issue) => issue.code)).toContain(
+      "FORMULA_NOT_ALLOWED",
+    );
   });
 
   it("detects duplicate occurrences deterministically", async () => {
@@ -115,7 +186,8 @@ describe("holiday workbook import", () => {
       "Fri",
       "Weekdays",
     ];
-    const result = await parseHolidayWorkbook(await workbookBytes([row, row]));
+
+    const result = await parseHolidayWorkbook(workbookBytes([row, row]));
 
     expect(result.rows[1].status).toBe("INVALID");
     expect(result.issues.map((issue) => issue.code)).toContain(
@@ -123,14 +195,17 @@ describe("holiday workbook import", () => {
     );
   });
 
-  it("rejects a package containing VBA before workbook parsing", async () => {
+  it("rejects a package containing VBA before authoritative verification", async () => {
     const zip = new JSZip();
     zip.file("[Content_Types].xml", "<Types />");
     zip.file("xl/vbaProject.bin", "macro");
+
     const bytes = await zip.generateAsync({ type: "uint8array" });
 
     await expect(assertSafeXlsxPackage(bytes)).rejects.toThrow(
-      new WorkbookContractError("Macro-enabled workbooks are not permitted."),
+      new WorkbookContractError(
+        "Macro-enabled workbooks are not permitted.",
+      ),
     );
   });
 });
@@ -145,12 +220,38 @@ const headers = [
   "Tag",
 ];
 
-async function workbookBytes(rows: unknown[][]): Promise<Uint8Array> {
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("Holiday_Master");
-  sheet.addRow(headers);
-  for (const row of rows) {
-    sheet.addRow(row);
+function workbookBytes(
+  rows: unknown[][],
+  governed = false,
+): Uint8Array {
+  const sheet = utils.aoa_to_sheet([headers, ...rows]);
+  const workbook = utils.book_new();
+
+  utils.book_append_sheet(workbook, sheet, "Holiday_Master");
+
+  if (governed) {
+    const metadataSheet = utils.aoa_to_sheet([
+      ["ATI-PH Governed Workbook Metadata", ""],
+      ["SYSTEM CONTRACT — DO NOT EDIT", ""],
+      ["Key", "Value"],
+      ["schema_name", "ati-public-holiday-import"],
+      ["schema_version", "1.0"],
+      ["template_type", "PUBLIC_HOLIDAY_IMPORT"],
+      ["data_sheet", "Holiday_Master"],
+    ]);
+
+    utils.book_append_sheet(
+      workbook,
+      metadataSheet,
+      "_ATI_PH_META",
+    );
   }
-  return new Uint8Array(await workbook.xlsx.writeBuffer());
+
+  return new Uint8Array(
+    write(workbook, {
+      type: "array",
+      bookType: "xlsx",
+      cellDates: true,
+    }),
+  );
 }

@@ -25,6 +25,7 @@ enum ArtifactType {
 
 enum ImportBatchStatus {
   UPLOADED
+  VERIFYING
   VALIDATED
   INVALID
   FAILED
@@ -110,15 +111,21 @@ model ImportBatch {
   uploadedAt    DateTime                @default(now())
   submittedAt   DateTime?
   publishedAt   DateTime?
-  failureReason String?                 @db.Text
-  rawArtifact   FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
+  failureReason         String?                 @db.Text
+  clientPreviewSha256    String?                 @db.Char(64)
+  businessContentSha256 String?                  @db.Char(64)
+  verificationStartedAt DateTime?
+  verifiedAt             DateTime?
+  rawArtifact            FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
   uploadedBy    User                    @relation("ImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
   rows                 ImportRow[]
   issues               ImportValidationIssue[]
   publishedOccurrences HolidayOccurrence[] @relation("PublishedBatchOccurrences")
 
   @@index([fileSha256])
+  @@index([businessContentSha256])
   @@index([status, uploadedAt])
+  @@index([status, verificationStartedAt])
   @@map("import_batches")
 }
 

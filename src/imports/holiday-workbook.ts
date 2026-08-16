@@ -1,16 +1,25 @@
-import ExcelJS from "exceljs";
-import JSZip from "jszip";
-
-import { normalizeLookupKey } from "@/lib/lookup-key";
 import {
+  read,
+  SSF,
+  utils,
+  type CellObject,
+  type WorkBook,
+  type WorkSheet,
+} from "xlsx";
+
+import {
+  GOVERNED_HOLIDAY_SCHEMA_VERSION,
   HOLIDAY_IMPORT_SCHEMA_NAME,
+  HOLIDAY_METADATA_SHEET,
   HOLIDAY_SOURCE_SHEET,
+  HOLIDAY_TEMPLATE_TYPE,
   LEGACY_HOLIDAY_SCHEMA_VERSION,
   type ImportIssue,
   type NormalizedHolidayRow,
   type ParsedHolidayWorkbook,
   type ParsedImportRow,
 } from "@/imports/contracts";
+import { normalizeLookupKey } from "@/lib/lookup-key";
 
 type CanonicalField =
   | "sourceRowId"
@@ -21,7 +30,11 @@ type CanonicalField =
   | "sourceReference"
   | "notes";
 
-type ColumnBinding = { header: string; column: number };
+type ColumnBinding = {
+  header: string;
+  column: number;
+};
+
 type ColumnMapping = Partial<Record<CanonicalField, ColumnBinding>>;
 
 const REQUIRED_FIELDS: readonly CanonicalField[] = [
@@ -55,38 +68,6 @@ export class WorkbookContractError extends Error {
   }
 }
 
-export async function assertSafeXlsxPackage(bytes: Uint8Array): Promise<void> {
-  if (
-    bytes.length < 4 ||
-    bytes[0] !== 0x50 ||
-    bytes[1] !== 0x4b ||
-    bytes[2] !== 0x03 ||
-    bytes[3] !== 0x04
-  ) {
-    throw new WorkbookContractError("File is not a readable XLSX ZIP package.");
-  }
-
-  let archive: JSZip;
-  try {
-    archive = await JSZip.loadAsync(bytes, { checkCRC32: true });
-  } catch {
-    throw new WorkbookContractError("Workbook is corrupt or encrypted.");
-  }
-
-  const entryNames = Object.keys(archive.files).map((name) => name.toLowerCase());
-  if (entryNames.some((name) => name.endsWith("vbaproject.bin"))) {
-    throw new WorkbookContractError("Macro-enabled workbooks are not permitted.");
-  }
-
-  const contentTypes = archive.file("[Content_Types].xml");
-  const contentTypeText = contentTypes
-    ? (await contentTypes.async("text")).toLowerCase()
-    : "";
-  if (contentTypeText.includes("macroenabled")) {
-    throw new WorkbookContractError("Macro-enabled workbooks are not permitted.");
-  }
-}
-
 export async function parseHolidayWorkbook(
   bytes: Uint8Array,
   options: {
@@ -95,46 +76,54 @@ export async function parseHolidayWorkbook(
     maximumPeriodDays?: number;
   },
 ): Promise<ParsedHolidayWorkbook> {
-  await assertSafeXlsxPackage(bytes);
+  let workbook: ReturnType<typeof read>;
 
-  const workbook = new ExcelJS.Workbook();
   try {
-    const arrayBuffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-    await workbook.xlsx.load(arrayBuffer);
+    workbook = read(bytes, {
+      cellDates: true,
+      cellNF: true,
+      dense: false,
+    });
   } catch {
     throw new WorkbookContractError("Workbook cannot be parsed as XLSX.");
   }
 
-  const worksheet = workbook.getWorksheet(HOLIDAY_SOURCE_SHEET);
+  const governedMetadata = readGovernedMetadata(workbook);
+  const schemaVersion =
+    governedMetadata?.schemaVersion ??
+    LEGACY_HOLIDAY_SCHEMA_VERSION;
+
+  const worksheet = workbook.Sheets[HOLIDAY_SOURCE_SHEET];
   if (!worksheet) {
     throw new WorkbookContractError(
-      `Required sheet \"${HOLIDAY_SOURCE_SHEET}\" was not found.`,
+      `Required sheet "${HOLIDAY_SOURCE_SHEET}" was not found.`,
     );
   }
 
-  const issues: ImportIssue[] = [
-    {
-      severity: "WARNING",
+  const issues: ImportIssue[] = [];
+
+  if (!governedMetadata) {
+    issues.push({
+      severity: "INFO",
       code: "LEGACY_SCHEMA_ASSUMED",
       message:
-        "No governed metadata sheet was found; the approved legacy Holiday_Master mapping was applied.",
-    },
-    {
-      severity: "INFO",
-      code: "DERIVED_COLUMNS_IGNORED",
-      message:
-        "Legacy Day and Tag columns are retained as raw evidence but are not authoritative input.",
-    },
-  ];
+        "Legacy Holiday_Master workbook format detected; the approved compatibility mapping was applied.",
+    });
+  }
+
+  issues.push({
+    severity: "INFO",
+    code: "DERIVED_COLUMNS_IGNORED",
+    message:
+      "Legacy Day and Tag columns are retained as raw evidence but are not authoritative input.",
+  });
+
   const columnMapping = mapHeaders(worksheet, issues);
 
   if (REQUIRED_FIELDS.some((field) => !columnMapping[field])) {
     return {
       schemaName: HOLIDAY_IMPORT_SCHEMA_NAME,
-      schemaVersion: LEGACY_HOLIDAY_SCHEMA_VERSION,
+      schemaVersion,
       sourceSheet: HOLIDAY_SOURCE_SHEET,
       columnMapping: serializableMapping(columnMapping),
       rows: [],
@@ -142,34 +131,39 @@ export async function parseHolidayWorkbook(
     };
   }
 
-  const aliases = options.regionAliases;
+  const range = worksheet["!ref"]
+    ? utils.decode_range(worksheet["!ref"])
+    : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+
   const maximumPeriodDays = options.maximumPeriodDays ?? 31;
   const rows: ParsedImportRow[] = [];
   const rowIssues = new Map<number, ImportIssue[]>();
 
-  for (let rowNumber = 2; rowNumber <= worksheet.actualRowCount; rowNumber += 1) {
-    const row = worksheet.getRow(rowNumber);
-    if (!hasMappedValue(row, columnMapping)) {
+  for (let zeroBasedRow = 1; zeroBasedRow <= range.e.r; zeroBasedRow += 1) {
+    const sourceRowNumber = zeroBasedRow + 1;
+
+    if (!hasMappedValue(worksheet, zeroBasedRow, columnMapping)) {
       continue;
     }
 
     const currentIssues: ImportIssue[] = [];
-    rowIssues.set(rowNumber, currentIssues);
-    const rawData = readRawRow(row, worksheet.getRow(1));
+    rowIssues.set(sourceRowNumber, currentIssues);
+
+    const rawData = readRawRow(worksheet, zeroBasedRow, range.e.c);
     const normalizedData = normalizeHolidayRow(
-      row,
+      worksheet,
+      zeroBasedRow,
       columnMapping,
-      aliases,
-      workbook.properties.date1904 === true,
+      options.regionAliases,
       maximumPeriodDays,
       options.rejectSampleRows === true,
       currentIssues,
-      rowNumber,
+      sourceRowNumber,
     );
 
     rows.push({
       sourceSheet: HOLIDAY_SOURCE_SHEET,
-      sourceRowNumber: rowNumber,
+      sourceRowNumber,
       sourceRowId: normalizedData.sourceRowId,
       rawData,
       normalizedData,
@@ -180,6 +174,7 @@ export async function parseHolidayWorkbook(
   }
 
   detectDuplicatesAndOverlaps(rows, rowIssues);
+
   for (const row of rows) {
     const currentIssues = rowIssues.get(row.sourceRowNumber) ?? [];
     if (currentIssues.some((issue) => issue.severity === "ERROR")) {
@@ -190,7 +185,7 @@ export async function parseHolidayWorkbook(
 
   return {
     schemaName: HOLIDAY_IMPORT_SCHEMA_NAME,
-    schemaVersion: LEGACY_HOLIDAY_SCHEMA_VERSION,
+    schemaVersion,
     sourceSheet: HOLIDAY_SOURCE_SHEET,
     columnMapping: serializableMapping(columnMapping),
     rows,
@@ -198,22 +193,81 @@ export async function parseHolidayWorkbook(
   };
 }
 
-function mapHeaders(
-  worksheet: ExcelJS.Worksheet,
-  issues: ImportIssue[],
-): ColumnMapping {
-  const mapping: ColumnMapping = {};
-  const headerRow = worksheet.getRow(1);
+function readGovernedMetadata(
+  workbook: WorkBook,
+): { schemaVersion: string } | undefined {
+  const metadataSheet = workbook.Sheets[HOLIDAY_METADATA_SHEET];
+  if (!metadataSheet) {
+    return undefined;
+  }
 
-  for (let column = 1; column <= headerRow.cellCount; column += 1) {
-    const header = cellText(headerRow.getCell(column)).trim();
-    if (!header) {
-      continue;
+  const rows = utils.sheet_to_json(metadataSheet, {
+    header: 1,
+    raw: false,
+    defval: "",
+  }) as unknown[][];
+
+  const metadata = new Map<string, string>();
+  const governedKeys = new Set([
+    "schema_name",
+    "schema_version",
+    "template_type",
+    "data_sheet",
+  ]);
+
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+
+    const key = String(row[0] ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (!governedKeys.has(key)) continue;
+
+    metadata.set(
+      key,
+      String(row[1] ?? "").trim(),
+    );
+  }
+
+  const expected = new Map<string, string>([
+    ["schema_name", HOLIDAY_IMPORT_SCHEMA_NAME],
+    ["schema_version", GOVERNED_HOLIDAY_SCHEMA_VERSION],
+    ["template_type", HOLIDAY_TEMPLATE_TYPE],
+    ["data_sheet", HOLIDAY_SOURCE_SHEET],
+  ]);
+
+  for (const [key, expectedValue] of expected) {
+    const actualValue = metadata.get(key);
+    if (actualValue !== expectedValue) {
+      throw new WorkbookContractError(
+        `Governed metadata "${key}" must be "${expectedValue}".`,
+      );
     }
+  }
+
+  return {
+    schemaVersion: GOVERNED_HOLIDAY_SCHEMA_VERSION,
+  };
+}
+
+function mapHeaders(worksheet: WorkSheet, issues: ImportIssue[]): ColumnMapping {
+  const mapping: ColumnMapping = {};
+  const range = worksheet["!ref"]
+    ? utils.decode_range(worksheet["!ref"])
+    : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
+
+  for (
+    let zeroBasedColumn = range.s.c;
+    zeroBasedColumn <= range.e.c;
+    zeroBasedColumn += 1
+  ) {
+    const header = cellText(cellAt(worksheet, 0, zeroBasedColumn)).trim();
+    if (!header) continue;
+
     const canonical = HEADER_ALIASES.get(normalizeHeader(header));
-    if (!canonical) {
-      continue;
-    }
+    if (!canonical) continue;
+
     if (mapping[canonical]) {
       issues.push({
         severity: "ERROR",
@@ -224,7 +278,8 @@ function mapHeaders(
       });
       continue;
     }
-    mapping[canonical] = { header, column };
+
+    mapping[canonical] = { header, column: zeroBasedColumn };
   }
 
   for (const field of REQUIRED_FIELDS) {
@@ -237,53 +292,105 @@ function mapHeaders(
       });
     }
   }
+
   return mapping;
 }
 
 function normalizeHolidayRow(
-  row: ExcelJS.Row,
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
   mapping: ColumnMapping,
   regionAliases: ReadonlyMap<string, string>,
-  date1904: boolean,
   maximumPeriodDays: number,
   rejectSampleRows: boolean,
   issues: ImportIssue[],
   sourceRowNumber: number,
 ): NormalizedHolidayRow {
-  const sourceRowId = optionalText(row, mapping.sourceRowId);
+  const sourceRowId = optionalText(worksheet, zeroBasedRow, mapping.sourceRowId);
   const regionValue = requiredText(
-    row,
+    worksheet,
+    zeroBasedRow,
     mapping.regionCode,
     "regionCode",
     issues,
     sourceRowNumber,
   );
   const holidayName = requiredText(
-    row,
+    worksheet,
+    zeroBasedRow,
     mapping.holidayName,
     "holidayName",
     issues,
     sourceRowNumber,
   );
   const startDate = readDate(
-    row,
+    worksheet,
+    zeroBasedRow,
     mapping.startDate,
     "startDate",
-    date1904,
     issues,
     sourceRowNumber,
   );
   const endDate = readDate(
-    row,
+    worksheet,
+    zeroBasedRow,
     mapping.endDate,
     "endDate",
-    date1904,
     issues,
     sourceRowNumber,
   );
 
+  if (sourceRowId && sourceRowId.length > 200) {
+    issues.push({
+      severity: "ERROR",
+      code: "VALUE_TOO_LONG",
+      fieldName: "sourceRowId",
+      message: "sourceRowId cannot exceed 200 characters.",
+      sourceRowNumber,
+    });
+  }
+
+  if (holidayName.length > 200) {
+    issues.push({
+      severity: "ERROR",
+      code: "VALUE_TOO_LONG",
+      fieldName: "holidayName",
+      rejectedValue: holidayName,
+      message: "holidayName cannot exceed 200 characters.",
+      sourceRowNumber,
+    });
+  }
+
+  const sourceReference = optionalText(
+    worksheet,
+    zeroBasedRow,
+    mapping.sourceReference,
+  );
+  const notes = optionalText(worksheet, zeroBasedRow, mapping.notes);
+
+  if (sourceReference && sourceReference.length > 500) {
+    issues.push({
+      severity: "ERROR",
+      code: "VALUE_TOO_LONG",
+      fieldName: "sourceReference",
+      message: "sourceReference cannot exceed 500 characters.",
+      sourceRowNumber,
+    });
+  }
+
+  if (notes && notes.length > 2_000) {
+    issues.push({
+      severity: "ERROR",
+      code: "VALUE_TOO_LONG",
+      fieldName: "notes",
+      message: "notes cannot exceed 2000 characters.",
+      sourceRowNumber,
+    });
+  }
+
   const sourceRegions = splitRegions(regionValue);
   const regionCodes: string[] = [];
+
   for (const region of sourceRegions) {
     const code = regionAliases.get(normalizeLookupKey(region));
     if (!code) {
@@ -292,26 +399,29 @@ function normalizeHolidayRow(
         code: "UNKNOWN_REGION",
         fieldName: "regionCode",
         rejectedValue: region,
-        message: `Region \"${region}\" is not an approved calendar-region alias.`,
+        message: `Region "${region}" is not an approved calendar-region alias.`,
         sourceRowNumber,
       });
     } else if (!regionCodes.includes(code)) {
       regionCodes.push(code);
     }
   }
+
   if (sourceRegions.length > 1) {
     issues.push({
       severity: "INFO",
       code: "MULTI_REGION_NORMALIZED",
       fieldName: "regionCode",
       rejectedValue: regionValue,
-      message: `${sourceRegions.length} legacy region values were normalized into relational region codes.`,
+      message:
+        `${sourceRegions.length} legacy region values were normalized into relational region codes.`,
       sourceRowNumber,
     });
   }
 
   if (startDate && endDate) {
     const durationDays = differenceInDays(startDate, endDate) + 1;
+
     if (durationDays < 1) {
       issues.push({
         severity: "ERROR",
@@ -331,6 +441,7 @@ function normalizeHolidayRow(
         sourceRowNumber,
       });
     }
+
     if (startDate.slice(0, 4) !== endDate.slice(0, 4)) {
       issues.push({
         severity: "WARNING",
@@ -348,8 +459,8 @@ function normalizeHolidayRow(
       severity: rejectSampleRows ? "ERROR" : "WARNING",
       code: "SAMPLE_ROW_DETECTED",
       message: rejectSampleRows
-        ? "Sample or test rows are not permitted in production imports."
-        : "Sample or test row detected; production will reject this row.",
+        ? "Sample or test rows are not permitted in governed imports."
+        : "Sample or test row detected.",
       sourceRowNumber,
     });
   }
@@ -363,8 +474,8 @@ function normalizeHolidayRow(
     startDate,
     endDate,
     calendarYear: startDate ? Number(startDate.slice(0, 4)) : undefined,
-    sourceReference: optionalText(row, mapping.sourceReference),
-    notes: optionalText(row, mapping.notes),
+    sourceReference,
+    notes,
   };
 }
 
@@ -373,17 +484,20 @@ function detectDuplicatesAndOverlaps(
   issuesByRow: Map<number, ImportIssue[]>,
 ): void {
   const identities = new Map<string, ParsedImportRow>();
+
   for (const row of rows) {
     const value = row.normalizedData;
     if (!value.startDate || !value.endDate || value.regionCodes.length === 0) {
       continue;
     }
+
     const key = [
       value.normalizedHolidayName,
       value.startDate,
       value.endDate,
       [...value.regionCodes].sort().join(","),
     ].join("|");
+
     const prior = identities.get(key);
     if (prior) {
       issuesByRow.get(row.sourceRowNumber)?.push({
@@ -402,9 +516,15 @@ function detectDuplicatesAndOverlaps(
     if (!left.startDate || !left.endDate || !left.normalizedHolidayName) {
       continue;
     }
-    for (let rightIndex = leftIndex + 1; rightIndex < rows.length; rightIndex += 1) {
+
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < rows.length;
+      rightIndex += 1
+    ) {
       const rightRow = rows[rightIndex];
       const right = rightRow.normalizedData;
+
       if (
         left.normalizedHolidayName !== right.normalizedHolidayName ||
         !right.startDate ||
@@ -413,11 +533,13 @@ function detectDuplicatesAndOverlaps(
       ) {
         continue;
       }
+
       if (left.startDate <= right.endDate && right.startDate <= left.endDate) {
         issuesByRow.get(rightRow.sourceRowNumber)?.push({
           severity: "WARNING",
           code: "OVERLAPPING_HOLIDAY_OCCURRENCE",
-          message: `Overlaps another occurrence of the same holiday at source row ${rows[leftIndex].sourceRowNumber}.`,
+          message:
+            `Overlaps another occurrence of the same holiday at source row ${rows[leftIndex].sourceRowNumber}.`,
           sourceRowNumber: rightRow.sourceRowNumber,
         });
       }
@@ -426,18 +548,17 @@ function detectDuplicatesAndOverlaps(
 }
 
 function readDate(
-  row: ExcelJS.Row,
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
   binding: ColumnBinding | undefined,
   fieldName: string,
-  date1904: boolean,
   issues: ImportIssue[],
   sourceRowNumber: number,
 ): string | undefined {
-  if (!binding) {
-    return undefined;
-  }
-  const cell = row.getCell(binding.column);
-  if (hasFormula(cell.value)) {
+  if (!binding) return undefined;
+
+  const cell = cellAt(worksheet, zeroBasedRow, binding.column);
+  if (cell?.f) {
     issues.push({
       severity: "ERROR",
       code: "FORMULA_NOT_ALLOWED",
@@ -449,7 +570,7 @@ function readDate(
     return undefined;
   }
 
-  const parsed = parseExcelDate(cell.value, date1904);
+  const parsed = parseSheetDate(cell?.v);
   if (!parsed) {
     issues.push({
       severity: "ERROR",
@@ -464,17 +585,17 @@ function readDate(
 }
 
 function requiredText(
-  row: ExcelJS.Row,
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
   binding: ColumnBinding | undefined,
   fieldName: string,
   issues: ImportIssue[],
   sourceRowNumber: number,
 ): string {
-  if (!binding) {
-    return "";
-  }
-  const cell = row.getCell(binding.column);
-  if (hasFormula(cell.value)) {
+  if (!binding) return "";
+
+  const cell = cellAt(worksheet, zeroBasedRow, binding.column);
+  if (cell?.f) {
     issues.push({
       severity: "ERROR",
       code: "FORMULA_NOT_ALLOWED",
@@ -485,6 +606,7 @@ function requiredText(
     });
     return "";
   }
+
   const value = cellText(cell).trim();
   if (!value) {
     issues.push({
@@ -499,97 +621,116 @@ function requiredText(
 }
 
 function optionalText(
-  row: ExcelJS.Row,
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
   binding: ColumnBinding | undefined,
 ): string | undefined {
-  if (!binding) {
-    return undefined;
-  }
-  const value = cellText(row.getCell(binding.column)).trim();
+  if (!binding) return undefined;
+  const value = cellText(cellAt(worksheet, zeroBasedRow, binding.column)).trim();
   return value || undefined;
 }
 
-function parseExcelDate(value: ExcelJS.CellValue, date1904: boolean): string | undefined {
+function parseSheetDate(value: unknown): string | undefined {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     return value.toISOString().slice(0, 10);
   }
+
   if (typeof value === "number" && Number.isFinite(value)) {
-    const epochOffset = date1904 ? 24_107 : 25_569;
-    const date = new Date(Math.round((value - epochOffset) * 86_400_000));
-    return Number.isNaN(date.getTime()) ? undefined : date.toISOString().slice(0, 10);
+    const parsed = SSF.parse_date_code(value);
+    if (!parsed) return undefined;
+
+    return [
+      String(parsed.y).padStart(4, "0"),
+      String(parsed.m).padStart(2, "0"),
+      String(parsed.d).padStart(2, "0"),
+    ].join("-");
   }
+
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
     const candidate = value.trim();
     const date = new Date(`${candidate}T00:00:00.000Z`);
-    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === candidate
+
+    return !Number.isNaN(date.getTime()) &&
+      date.toISOString().slice(0, 10) === candidate
       ? candidate
       : undefined;
   }
+
   return undefined;
 }
 
-function readRawRow(row: ExcelJS.Row, headerRow: ExcelJS.Row): Record<string, unknown> {
+function readRawRow(
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
+  maximumColumn: number,
+): Record<string, unknown> {
   const raw: Record<string, unknown> = {};
-  const maximumColumn = Math.max(headerRow.cellCount, row.cellCount);
-  for (let column = 1; column <= maximumColumn; column += 1) {
-    const header = cellText(headerRow.getCell(column)).trim() || `column_${column}`;
-    const value = serializeCellValue(row.getCell(column).value);
+
+  for (let zeroBasedColumn = 0; zeroBasedColumn <= maximumColumn; zeroBasedColumn += 1) {
+    const header =
+      cellText(cellAt(worksheet, 0, zeroBasedColumn)).trim() ||
+      `column_${zeroBasedColumn + 1}`;
+    const value = serializeCell(cellAt(worksheet, zeroBasedRow, zeroBasedColumn));
+
     if (value !== null && value !== "") {
       raw[header] = value;
     }
   }
+
   return raw;
 }
 
-function serializeCellValue(value: ExcelJS.CellValue): unknown {
-  if (value === null || value === undefined) {
-    return null;
+function serializeCell(cell: CellObject | undefined): unknown {
+  if (!cell) return null;
+  if (cell.f) {
+    return {
+      formula: cell.f,
+      result: serializeValue(cell.v),
+    };
   }
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
-  if (typeof value !== "object") {
-    return value;
-  }
-  if ("formula" in value) {
-    return { formula: value.formula, result: serializeUnknown(value.result) };
-  }
-  if ("richText" in value) {
-    return value.richText.map((part) => part.text).join("");
-  }
-  if ("text" in value) {
-    return value.text;
-  }
-  return serializeUnknown(value);
+  return serializeValue(cell.v);
 }
 
-function serializeUnknown(value: unknown): unknown {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
+function serializeValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
   if (
-    value === null ||
     typeof value === "string" ||
     typeof value === "number" ||
     typeof value === "boolean"
   ) {
     return value;
   }
-  return value === undefined ? null : String(value);
+  return String(value);
 }
 
-function hasMappedValue(row: ExcelJS.Row, mapping: ColumnMapping): boolean {
+function hasMappedValue(
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
+  mapping: ColumnMapping,
+): boolean {
   return Object.values(mapping).some((binding) =>
-    binding ? cellText(row.getCell(binding.column)).trim() !== "" : false,
+    binding
+      ? cellText(cellAt(worksheet, zeroBasedRow, binding.column)).trim() !== ""
+      : false,
   );
 }
 
-function hasFormula(value: ExcelJS.CellValue): value is ExcelJS.CellFormulaValue {
-  return typeof value === "object" && value !== null && "formula" in value;
+function cellAt(
+  worksheet: WorkSheet,
+  zeroBasedRow: number,
+  zeroBasedColumn: number,
+): CellObject | undefined {
+  return worksheet[
+    utils.encode_cell({ r: zeroBasedRow, c: zeroBasedColumn })
+  ] as CellObject | undefined;
 }
 
-function cellText(cell: ExcelJS.Cell): string {
-  return cell.text ?? "";
+function cellText(cell: CellObject | undefined): string {
+  if (!cell) return "";
+  if (cell.v instanceof Date) return cell.v.toISOString();
+  if (cell.v === null || cell.v === undefined) return "";
+  return String(cell.v);
 }
 
 function splitRegions(value: string): string[] {
@@ -623,6 +764,8 @@ function serializableMapping(
   mapping: ColumnMapping,
 ): Record<string, { header: string; column: number }> {
   return Object.fromEntries(
-    Object.entries(mapping).filter((entry): entry is [string, ColumnBinding] => Boolean(entry[1])),
+    Object.entries(mapping).filter(
+      (entry): entry is [string, ColumnBinding] => Boolean(entry[1]),
+    ),
   );
 }

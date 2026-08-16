@@ -50,7 +50,12 @@ type ReviewBatch = {
   id: string;
   batchNumber: string;
   sourceName: string;
-  status: "UPLOADED" | "VALIDATED" | "INVALID" | "FAILED";
+  status:
+    | "UPLOADED"
+    | "VERIFYING"
+    | "VALIDATED"
+    | "INVALID"
+    | "FAILED";
   schemaVersion: string;
   totalRows: number;
   validRows: number;
@@ -60,6 +65,9 @@ type ReviewBatch = {
   frozen: boolean;
   submittedAt: string | null;
   publishedAt: string | null;
+  verificationStartedAt: string | null;
+  verifiedAt: string | null;
+  failureReason: string | null;
   publishedOccurrences: PublishedOccurrenceView[];
   uploadedBy: {
     displayName: string | null;
@@ -216,6 +224,23 @@ export function ImportBatchReview({
       {error ? (
         <p className="form-notice form-notice--error">
           {error}
+        </p>
+      ) : null}
+
+      {batch.status === "UPLOADED" ||
+      batch.status === "VERIFYING" ? (
+        <p className="form-notice form-notice--warning">
+          Authoritative server verification is pending. Staging
+          correction, warning acknowledgement, approval, and
+          publication remain locked until the worker verifies the
+          stored raw workbook against the client preview fingerprint.
+        </p>
+      ) : null}
+
+      {batch.status === "FAILED" &&
+      batch.failureReason ? (
+        <p className="form-notice form-notice--error">
+          Workbook verification failed: {batch.failureReason}
         </p>
       ) : null}
 

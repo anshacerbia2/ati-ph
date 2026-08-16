@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.14 |
+| Version | 0.3.15 |
 | Date | 2026-08-15 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -682,3 +682,11 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 ## 15. Next Reference
 
 See `plan.md` for phased delivery, decision gates, and when each module becomes reusable beyond Public Holiday
+
+## Client preprocessing and authoritative verification
+
+Workbook preprocessing is split across the trust boundary. The browser dynamically loads SheetJS only after file selection, parses `Holiday_Master`, applies the governed mapping and normalization rules, and renders a local preview before any upload. On confirmation it submits the untouched XLSX together with the preview JSON.
+
+The request path stores the XLSX immutably and the JSON as provisional staging, records `clientPreviewSha256`, and returns `UPLOADED` without synchronously parsing the workbook. The worker claims the batch as `VERIFYING`, performs package and macro safety checks, reparses the stored XLSX independently with SheetJS, recomputes the same deterministic preview fingerprint, and fails closed on mismatch.
+
+Only a matching server parse can transition the batch to `VALIDATED` or `INVALID`. Correction, warning acknowledgement, approval, and publication remain locked before that transition. Canonical publication additionally requires `verifiedAt` and remains downstream of maker-checker approval.

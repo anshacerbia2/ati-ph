@@ -722,6 +722,62 @@ h1, h2, h3 { color: var(--text-strong); font-family: var(--font-display); }
   }
 }
 
+/* Client-side workbook preprocessing */
+
+.import-local-preview {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--ati-white);
+}
+
+.import-preview-table {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.import-preview-table__head,
+.import-preview-table__row {
+  display: grid;
+  grid-template-columns: 56px minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(190px, 1fr) 100px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.import-preview-table__head {
+  background: var(--ati-gray-50);
+  color: var(--text-muted);
+  font-family: var(--font-label);
+  font-size: var(--fs-meta);
+  font-weight: 700;
+}
+
+.import-preview-table__row {
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-default);
+  font-size: var(--fs-xs);
+}
+
+.import-preview-table__row strong {
+  color: var(--text-strong);
+}
+
+@media (max-width: 900px) {
+  .import-preview-table__head {
+    display: none;
+  }
+
+  .import-preview-table__row {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 760px) {
   .import-review-summary__top,
   .import-review-issues__header {
@@ -1489,5 +1545,143 @@ tbody tr:hover { background: var(--ati-gray-50); }
 
   .alias-readonly-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Import preview full-width + blocking-submit UX */
+.import-local-preview {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+
+.import-preview-table {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.import-preview-table__head,
+.import-preview-table__row {
+  min-width: 760px;
+}
+
+/* Import workspace polish + pagination v4 */
+
+.import-form .file-field input {
+  height: 42px;
+  min-height: 42px;
+  padding: 5px 8px;
+}
+
+.import-form .file-field input::file-selector-button {
+  height: 30px;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 5px 10px;
+}
+
+.import-local-preview {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+
+.import-preview-table {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.import-preview-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 10px 2px 0;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.import-preview-pagination__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.import-history-row {
+  grid-template-columns:
+    minmax(280px, 1.35fr)
+    minmax(250px, 0.95fr)
+    auto
+    minmax(220px, auto);
+  gap: 20px;
+  padding: 14px 16px;
+}
+
+.import-history-row__identity {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.import-history-row__identity strong {
+  overflow: visible;
+  color: var(--text-strong);
+  font-size: var(--fs-xs);
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.import-history-row__source {
+  display: block;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-history-row__metrics {
+  display: grid;
+  gap: 5px;
+}
+
+.import-history-row__counts {
+  color: var(--text-body);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+
+.import-history-row__meta {
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: 1.35;
+}
+
+.import-history-row > .ati-badge {
+  justify-self: start;
+}
+
+@media (max-width: 980px) {
+  .import-preview-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .import-history-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .import-history-row__metrics,
+  .import-history-row__actions {
+    grid-column: 1 / -1;
+  }
+
+  .import-history-row__actions,
+  .import-history-row__actions .import-download-actions {
+    justify-content: flex-start;
   }
 }

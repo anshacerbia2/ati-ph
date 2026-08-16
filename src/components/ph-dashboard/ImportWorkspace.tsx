@@ -1,67 +1,169 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { mountedPath } from "@/config/app";
+import type { ParsedHolidayWorkbook } from "@/imports/contracts";
 
-type ImportIssue = {
-  severity: "ERROR" | "WARNING" | "INFO";
-  code: string;
-  message: string;
-  sourceRowNumber?: number;
-};
+const PREVIEW_PAGE_SIZE = 10;
+
+type ImportStatus =
+  | "UPLOADED"
+  | "VERIFYING"
+  | "VALIDATED"
+  | "INVALID"
+  | "FAILED";
 
 type ImportResult = {
   batch: {
     id: string;
     batchNumber: string;
-    status: "VALIDATED" | "INVALID";
+    status: ImportStatus;
     totalRows: number;
     validRows: number;
     invalidRows: number;
     warningCount: number;
     schemaVersion: string;
   };
-  issues: ImportIssue[];
+  issues: ParsedHolidayWorkbook["issues"];
   truncatedIssueCount: number;
+  verificationPending: boolean;
 };
 
 type RecentImport = {
   id: string;
   batchNumber: string;
   sourceName: string;
-  status: "UPLOADED" | "VALIDATED" | "INVALID" | "FAILED";
+  status: ImportStatus;
   totalRows: number;
+  validRows: number;
   invalidRows: number;
   warningCount: number;
   uploadedAt: string;
-  uploadedBy: {
-    email: string;
-    displayName: string | null;
-  };
+  uploadedBy: string;
+};
+
+type PreviewAlias = {
+  normalizedAlias: string;
+  regionCode: string;
+};
+
+type FileIdentity = {
+  name: string;
+  size: number;
+  lastModified: number;
 };
 
 export function ImportWorkspace({
   canUpload,
   recentImports,
+  previewRegionAliases,
 }: {
   canUpload: boolean;
   recentImports: RecentImport[];
+  previewRegionAliases: PreviewAlias[];
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [confirmDuplicate, setConfirmDuplicate] = useState(false);
+  const [previewPage, setPreviewPage] = useState(1);
+  // FUTURE: controlled exact-duplicate reprocessing
+  // const [confirmDuplicate, setConfirmDuplicate] = useState(false);
   const [error, setError] = useState<string>();
+  const [preview, setPreview] = useState<ParsedHolidayWorkbook>();
+  const [previewFile, setPreviewFile] = useState<FileIdentity>();
   const [result, setResult] = useState<ImportResult>();
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function previewSelectedFile() {
     const file = inputRef.current?.files?.[0];
 
-    if (!file) {
-      setError("Choose an XLSX workbook first.");
+    // FUTURE: controlled exact-duplicate reprocessing
+
+    // setConfirmDuplicate(false);
+    setError(undefined);
+    setResult(undefined);
+    setPreview(undefined);
+    setPreviewFile(undefined);
+
+    if (!file) return;
+
+    setParsing(true);
+
+    try {
+      const { parseHolidayWorkbook } = await import(
+        "@/imports/holiday-workbook"
+      );
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const aliases = new Map(
+        previewRegionAliases.map((entry) => [
+          entry.normalizedAlias,
+          entry.regionCode,
+        ]),
+      );
+
+      const parsed = await parseHolidayWorkbook(bytes, {
+        regionAliases: aliases,
+        rejectSampleRows: true,
+      });
+
+      setPreview(parsed);
+      
+      setPreviewPage(1);
+      setPreviewFile(identityOf(file));
+    } catch (previewError) {
+      setError(
+        previewError instanceof Error
+          ? previewError.message
+          : "Workbook preview failed.",
+      );
+    } finally {
+      setParsing(false);
+    }
+  }
+
+    const previewPageCount = preview
+    ? Math.max(1, Math.ceil(preview.rows.length / PREVIEW_PAGE_SIZE))
+    : 1;
+  const safePreviewPage = Math.min(previewPage, previewPageCount);
+  const previewPageStart = preview
+    ? (safePreviewPage - 1) * PREVIEW_PAGE_SIZE
+    : 0;
+  const previewPageRows = preview
+    ? preview.rows.slice(
+        previewPageStart,
+        previewPageStart + PREVIEW_PAGE_SIZE,
+      )
+    : [];
+  const previewPageEnd = preview
+    ? Math.min(
+        previewPageStart + previewPageRows.length,
+        preview.rows.length,
+      )
+    : 0;
+
+async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const file = inputRef.current?.files?.[0];
+
+    if (!file || !preview || !previewFile) {
+      setError("No validated workbook preview is available. Re-select the XLSX file and wait for preview validation to finish.");
+      return;
+    }
+
+    if (!sameIdentity(identityOf(file), previewFile)) {
+      setError(
+        "The selected file changed after preview. Preview it again before submitting.",
+      );
+      return;
+    }
+
+    if (previewHasBlockingErrors(preview)) {
+      setError(
+        "Resolve all blocking validation errors before submitting this workbook.",
+      );
       return;
     }
 
@@ -71,29 +173,33 @@ export function ImportWorkspace({
 
     const formData = new FormData();
     formData.set("file", file);
+    formData.set("preview", JSON.stringify(preview));
 
-    if (confirmDuplicate) {
-      formData.set("confirmDuplicate", "true");
-    }
+    // FUTURE: controlled exact-duplicate reprocessing must be a governed/admin flow
+    // if (confirmDuplicate) {
+    //   formData.set("confirmDuplicate", "true");
+    // }
 
     try {
       const response = await fetch(mountedPath("/api/imports"), {
         method: "POST",
         body: formData,
       });
+
       const payload = (await response.json()) as ImportResult & {
         error?: string;
         code?: string;
       };
 
       if (!response.ok) {
-        if (
-          payload.code ===
-          "DUPLICATE_FILE_CONFIRMATION_REQUIRED"
-        ) {
-          setConfirmDuplicate(true);
+        // FUTURE: the old confirmation flow used DUPLICATE_FILE_CONFIRMATION_REQUIRED
+        // and setConfirmDuplicate(true). Exact duplicates now fail closed.
+        if (payload.code === "EXACT_FILE_DUPLICATE") {
+          // FUTURE: controlled exact-duplicate reprocessing
+          // setConfirmDuplicate(true);
           setError(
-            `${payload.error} Submit again to explicitly reprocess it.`,
+            payload.error ??
+            "This exact workbook was imported before. Exact duplicate files cannot be reprocessed through the normal import flow.",
           );
         } else {
           setError(payload.error ?? "Import failed.");
@@ -101,7 +207,9 @@ export function ImportWorkspace({
         return;
       }
 
-      setConfirmDuplicate(false);
+      // FUTURE: controlled exact-duplicate reprocessing
+
+      // setConfirmDuplicate(false);
       setResult(payload);
       router.refresh();
     } catch {
@@ -111,21 +219,22 @@ export function ImportWorkspace({
     }
   }
 
+  const previewInvalidRows =
+    preview?.rows.filter((row) => row.status === "INVALID").length ?? 0;
+  const previewValidRows = (preview?.rows.length ?? 0) - previewInvalidRows;
+  const previewWarnings =
+    preview?.issues.filter((issue) => issue.severity === "WARNING").length ??
+    0;
+
   return (
     <>
-      <section
-        className="import-panel"
-        aria-labelledby="import-heading"
-      >
+      <section className="import-panel" aria-labelledby="import-heading">
         <div className="import-copy">
           <p className="eyebrow">Governed import</p>
-          <h2 id="import-heading">
-            Stage a public-holiday workbook
-          </h2>
+          <h2 id="import-heading">Preview a public-holiday workbook</h2>
           <p>
-            Upload keeps the original file immutable, maps the legacy
-            Holiday_Master sheet, and validates every row before
-            canonical publication is possible.
+            The browser parses and normalizes Holiday_Master first. Nothing
+            is sent to ATI PH until you confirm the preview.
           </p>
         </div>
 
@@ -134,12 +243,11 @@ export function ImportWorkspace({
             <span>XLSX workbook</span>
             <input
               accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              disabled={!canUpload || submitting}
-              onChange={() => {
-                setConfirmDuplicate(false);
-                setError(undefined);
-                setResult(undefined);
+              disabled={!canUpload || submitting || parsing}
+              onClick={(event) => {
+                event.currentTarget.value = "";
               }}
+              onChange={() => void previewSelectedFile()}
               ref={inputRef}
               type="file"
             />
@@ -147,175 +255,258 @@ export function ImportWorkspace({
 
           <button
             className="ati-btn"
-            disabled={!canUpload || submitting}
+            disabled={
+              !canUpload ||
+              submitting ||
+              parsing ||
+              !preview ||
+              previewHasBlockingErrors(preview)
+            }
             type="submit"
           >
-            {submitting
-              ? "Validating…"
-              : confirmDuplicate
-                ? "Confirm duplicate import"
-                : "Upload and validate"}
+            {parsing
+              ? "Reading workbook…"
+              : submitting
+                ? "Submitting…"
+                : "Submit governed import"}
+              {/* FUTURE: controlled exact-duplicate reprocessing button:
+                  "Confirm duplicate import"
+              */}
           </button>
         </form>
 
         {!canUpload ? (
           <p className="form-notice form-notice--warning">
-            Read-only access. Your current ATI PH permissions do not
-            allow workbook upload.
+            Read-only access. Your current ATI PH permissions do not allow
+            workbook upload.
           </p>
         ) : null}
 
         {error ? (
-          <p className="form-notice form-notice--error">
-            {error}
-          </p>
+          <p className="form-notice form-notice--error">{error}</p>
         ) : null}
 
-        {result ? <ImportResultCard result={result} /> : null}
+        {preview ? (
+          <div className="import-local-preview">
+            <div className="import-result__heading">
+              <div>
+                <p className="micro-label">LOCAL PREVIEW · NOT PERSISTED</p>
+                <h3>Review before submission</h3>
+              </div>
+              <span
+                className={`ati-badge ${
+                  previewInvalidRows > 0
+                    ? "ati-badge--danger"
+                    : "ati-badge--success"
+                }`}
+              >
+                {previewInvalidRows > 0 ? "HAS ERRORS" : "PREVIEW READY"}
+              </span>
+            </div>
+
+            <dl className="import-metrics">
+              <div>
+                <dt>Rows</dt>
+                <dd>{preview.rows.length}</dd>
+              </div>
+              <div>
+                <dt>Valid</dt>
+                <dd>{previewValidRows}</dd>
+              </div>
+              <div>
+                <dt>Invalid</dt>
+                <dd>{previewInvalidRows}</dd>
+              </div>
+              <div>
+                <dt>Warnings</dt>
+                <dd>{previewWarnings}</dd>
+              </div>
+            </dl>
+
+            <div className="import-preview-table">
+              <div className="import-preview-table__head">
+                <span>Row</span>
+                <span>Holiday</span>
+                <span>Region</span>
+                <span>Period</span>
+                <span>Status</span>
+              </div>
+
+              {previewPageRows.map((row) => (
+                <div
+                  className="import-preview-table__row"
+                  key={row.sourceRowNumber}
+                >
+                  <span>{row.sourceRowNumber}</span>
+                  <strong>
+                    {row.normalizedData.holidayName || "Unnamed holiday"}
+                  </strong>
+                  <span>
+                    {row.normalizedData.regionCodes.length > 0
+                      ? row.normalizedData.regionCodes.join(", ")
+                      : "Unresolved"}
+                  </span>
+                  <span>
+                    {row.normalizedData.startDate ?? "—"} →{" "}
+                    {row.normalizedData.endDate ?? "—"}
+                  </span>
+                  <span
+                    className={`issue-severity ${
+                      row.status === "VALID"
+                        ? "issue-severity--info"
+                        : "issue-severity--error"
+                    }`}
+                  >
+                    {row.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+              {preview && preview.rows.length > PREVIEW_PAGE_SIZE ? (
+                <div
+                  className="import-preview-pagination"
+                  aria-label="Preview pagination"
+                >
+                  <span>
+                    Rows {previewPageStart + 1}-{previewPageEnd} of{" "}
+                    {preview.rows.length}
+                  </span>
+
+                  <div className="import-preview-pagination__actions">
+                    <button
+                      className="ati-btn ati-btn--compact ati-btn--subtle"
+                      disabled={safePreviewPage <= 1}
+                      onClick={() =>
+                        setPreviewPage((page) => Math.max(1, page - 1))
+                      }
+                      type="button"
+                    >
+                      Previous
+                    </button>
+
+                    <span>
+                      Page {safePreviewPage} of {previewPageCount}
+                    </span>
+
+                    <button
+                      className="ati-btn ati-btn--compact ati-btn--subtle"
+                      disabled={safePreviewPage >= previewPageCount}
+                      onClick={() =>
+                        setPreviewPage((page) =>
+                          Math.min(previewPageCount, page + 1),
+                        )
+                      }
+                      type="button"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+            {preview.issues.length > 0 ? (
+              <ul className="issue-list">
+                {preview.issues.slice(0, 8).map((issue, index) => (
+                  <li
+                    key={`${issue.code}-${issue.sourceRowNumber ?? "batch"}-${index}`}
+                  >
+                    <span
+                      className={`issue-severity issue-severity--${issue.severity.toLowerCase()}`}
+                    >
+                      {issue.severity}
+                    </span>
+                    <span>
+                      {issue.sourceRowNumber
+                        ? `Row ${issue.sourceRowNumber}: `
+                        : ""}
+                      {issue.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <p className="result-footnote">
+              After submission the raw XLSX is stored immutably. The worker
+              reparses it server-side and compares a SHA-256 preview
+              fingerprint before the batch can become authoritative.
+            </p>
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="import-result" aria-live="polite">
+            <div className="import-result__heading">
+              <div>
+                <p className="micro-label">{result.batch.batchNumber}</p>
+                <h3>Server verification queued</h3>
+              </div>
+              <span className="ati-badge ati-badge--warning">
+                {result.batch.status}
+              </span>
+            </div>
+
+            <p className="result-footnote">
+              Submission is persisted, but the client preview is not
+              authoritative. Approval remains blocked until the worker
+              verifies the stored raw workbook.
+            </p>
+          </div>
+        ) : null}
       </section>
 
-      <RecentImports imports={recentImports} />
-    </>
-  );
-}
+      <section className="ati-card import-history">
+        <div className="import-history__header">
+          <div>
+            <p className="eyebrow">Evidence</p>
+            <h2>Recent imports</h2>
+            <p>
+              Verification status, full validation evidence, and the exact
+              immutable source workbook remain attached to each batch.
+            </p>
+          </div>
+          <span className="ati-badge ati-badge--brand">
+            LAST {recentImports.length}
+          </span>
+        </div>
 
-function ImportResultCard({
-  result,
-}: {
-  result: ImportResult;
-}) {
-  return (
-    <div className="import-result" aria-live="polite">
-      <div className="import-result__heading">
-        <div>
-          <p className="micro-label">
-            {result.batch.batchNumber}
+        {recentImports.length === 0 ? (
+          <p className="region-empty">
+            No import batches have been created yet.
           </p>
-          <h3>
-            {result.batch.status === "VALIDATED"
-              ? "Ready for review"
-              : "Validation blocked"}
-          </h3>
-        </div>
-
-        <span
-          className={
-            result.batch.status === "VALIDATED"
-              ? "ati-badge ati-badge--success"
-              : "ati-badge ati-badge--danger"
-          }
-        >
-          {result.batch.status}
-        </span>
-      </div>
-
-      <dl className="import-metrics">
-        <div>
-          <dt>Rows</dt>
-          <dd>{result.batch.totalRows}</dd>
-        </div>
-        <div>
-          <dt>Valid</dt>
-          <dd>{result.batch.validRows}</dd>
-        </div>
-        <div>
-          <dt>Invalid</dt>
-          <dd>{result.batch.invalidRows}</dd>
-        </div>
-        <div>
-          <dt>Warnings</dt>
-          <dd>{result.batch.warningCount}</dd>
-        </div>
-      </dl>
-
-      {result.issues.length > 0 ? (
-        <ul className="issue-list">
-          {result.issues.slice(0, 8).map((issue, index) => (
-            <li
-              key={`${issue.code}-${issue.sourceRowNumber ?? "batch"}-${index}`}
-            >
-              <span
-                className={`issue-severity issue-severity--${issue.severity.toLowerCase()}`}
-              >
-                {issue.severity}
-              </span>
-              <span>
-                {issue.sourceRowNumber
-                  ? `Row ${issue.sourceRowNumber}: `
-                  : ""}
-                {issue.message}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {result.issues.length > 8 ||
-      result.truncatedIssueCount > 0 ? (
-        <p className="result-footnote">
-          Showing the first 8 issues. Download the full validation
-          report for complete evidence.
-        </p>
-      ) : null}
-
-      <DownloadActions
-        batchId={result.batch.id}
-        sourceName="Original workbook"
-      />
-    </div>
-  );
-}
-
-function RecentImports({
-  imports,
-}: {
-  imports: RecentImport[];
-}) {
-  return (
-    <section
-      className="ati-card import-history"
-      aria-labelledby="recent-imports-heading"
-    >
-      <div className="import-history__header">
-        <div>
-          <p className="eyebrow">Evidence</p>
-          <h2 id="recent-imports-heading">
-            Recent imports
-          </h2>
-          <p>
-            Download the complete validation report or the exact
-            immutable workbook bytes registered for each batch.
-          </p>
-        </div>
-
-        <span className="ati-badge ati-badge--brand">
-          Last {imports.length}
-        </span>
-      </div>
-
-      {imports.length === 0 ? (
-        <p className="region-empty">
-          No import batches have been created yet.
-        </p>
-      ) : (
-        <div className="import-history__list">
-          {imports.map((batch) => (
-            <article
+        ) : (
+          <div className="import-history-list">
+            {recentImports.map((batch) => (
+              <article
               className="import-history-row"
               key={batch.id}
             >
               <div className="import-history-row__identity">
-                <strong>{batch.sourceName}</strong>
-                <span>
-                  {batch.batchNumber} ·{" "}
-                  {formatUploadedAt(batch.uploadedAt)}
+                <strong>{batch.batchNumber}</strong>
+                <span className="import-history-row__source">
+                  {batch.sourceName}
                 </span>
               </div>
 
               <div className="import-history-row__metrics">
-                <span>{batch.totalRows} rows</span>
-                <span>{batch.invalidRows} invalid</span>
-                <span>{batch.warningCount} warnings</span>
+                <span className="import-history-row__counts">
+                  {batch.totalRows} rows
+                  <span aria-hidden="true"> · </span>
+                  {batch.invalidRows} invalid
+                  <span aria-hidden="true"> · </span>
+                  {batch.warningCount} warnings
+                </span>
+                <span className="import-history-row__meta">
+                  {new Intl.DateTimeFormat("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(new Date(batch.uploadedAt))}
+                  <span aria-hidden="true"> · </span>
+                  {batch.uploadedBy}
+                </span>
               </div>
 
               <span className={statusBadge(batch.status)}>
@@ -329,49 +520,67 @@ function RecentImports({
                 >
                   Review
                 </a>
-                <DownloadActions
-                  batchId={batch.id}
-                  sourceName={batch.sourceName}
-                />
+                <a
+                  className="ati-btn ati-btn--compact ati-btn--subtle"
+                  href={mountedPath(
+                    `/api/imports/${batch.id}/validation-report`,
+                  )}
+                >
+                  Report
+                </a>
+                <a
+                  className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
+                  href={mountedPath(
+                    `/api/imports/${batch.id}/raw`,
+                  )}
+                  title={`Download ${batch.sourceName}`}
+                >
+                  XLSX
+                </a>
               </div>
             </article>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DownloadActions({
-  batchId,
-  sourceName,
-}: {
-  batchId: string;
-  sourceName: string;
-}) {
-  return (
-    <div className="import-download-actions">
-      <a
-        className="ati-btn ati-btn--compact ati-btn--subtle"
-        href={mountedPath(
-          `/api/imports/${batchId}/validation-report`,
+            ))}
+          </div>
         )}
-      >
-        Validation report
-      </a>
-
-      <a
-        className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
-        href={mountedPath(`/api/imports/${batchId}/raw`)}
-        title={`Download ${sourceName}`}
-      >
-        Original workbook
-      </a>
-    </div>
+      </section>
+    </>
   );
 }
 
-function statusBadge(status: RecentImport["status"]): string {
+function previewHasBlockingErrors(
+  preview: ParsedHolidayWorkbook | undefined,
+): boolean {
+  if (!preview) {
+    return true;
+  }
+
+  return (
+    preview.rows.some(
+      (row) => row.status === "INVALID",
+    ) ||
+    preview.issues.some(
+      (issue) => issue.severity === "ERROR",
+    )
+  );
+}
+
+function identityOf(file: File): FileIdentity {
+  return {
+    name: file.name,
+    size: file.size,
+    lastModified: file.lastModified,
+  };
+}
+
+function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
+  return (
+    left.name === right.name &&
+    left.size === right.size &&
+    left.lastModified === right.lastModified
+  );
+}
+
+function statusBadge(status: ImportStatus): string {
   if (status === "VALIDATED") {
     return "ati-badge ati-badge--success";
   }
@@ -383,12 +592,3 @@ function statusBadge(status: RecentImport["status"]): string {
   return "ati-badge ati-badge--warning";
 }
 
-function formatUploadedAt(value: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}

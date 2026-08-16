@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.14 |
+| Version | 0.3.15 |
 | Date | 2026-08-15 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -123,8 +123,11 @@ Completed in the first Phase 1 vertical slice:
 - Controlled normalized-staging correction, exclusion, and restoration with immutable raw evidence, full-batch revalidation, audit history, and validation-state outbox transition
 - Reusable maker-checker approval request with frozen SHA-256 content hash, requester/approver separation, approve/reject decision history, transactional audit/outbox events, and rejection unfreeze for correction/resubmission
 - Idempotent canonical holiday publication from approved staging with holiday definition/occurrence/region/date persistence, inclusive multi-day expansion, derived weekday/weekend classification, immutable source-row lineage, and publication audit/outbox event
+- Browser-side SheetJS preprocessing and preview before upload, followed by asynchronous authoritative raw-workbook verification in the worker using a deterministic SHA-256 preview fingerprint
 
 Still pending before the Phase 1 exit gate is complete:
+
+- End-to-end smoke with the worker running
 
 - Phase 1 mounted-portal acceptance and business-owner verification of canonical publication evidence
 
@@ -192,7 +195,7 @@ audit_events
 outbox_events
 ```
 
-The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage
+The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage. `import_batches` also carries `clientPreviewSha256`, `verificationStartedAt`, and `verifiedAt` so browser preprocessing remains advisory until independently verified
 
 ### Explicitly excluded
 

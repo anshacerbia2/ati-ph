@@ -51,6 +51,7 @@ export async function POST(
             invalidRows: true,
             submittedAt: true,
             publishedAt: true,
+            verifiedAt: true,
             rows: {
               orderBy: [
                 { sourceSheet: "asc" },
@@ -120,6 +121,13 @@ export async function POST(
             regionCount,
             dateCount,
           };
+        }
+
+        if (batch.status !== "VALIDATED" || !batch.verifiedAt) {
+          throw new PublicationError(
+            "Batch must complete authoritative workbook verification before publication.",
+            409,
+          );
         }
 
         if (!batch.submittedAt) {

@@ -1,6 +1,9 @@
 export const HOLIDAY_IMPORT_SCHEMA_NAME = "ati-public-holiday-import";
 export const LEGACY_HOLIDAY_SCHEMA_VERSION = "legacy-1.0";
 export const HOLIDAY_SOURCE_SHEET = "Holiday_Master";
+export const HOLIDAY_METADATA_SHEET = "_ATI_PH_META";
+export const GOVERNED_HOLIDAY_SCHEMA_VERSION = "1.0";
+export const HOLIDAY_TEMPLATE_TYPE = "PUBLIC_HOLIDAY_IMPORT";
 
 export type ValidationSeverity = "ERROR" | "WARNING" | "INFO";
 

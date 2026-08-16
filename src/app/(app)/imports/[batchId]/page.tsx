@@ -40,6 +40,9 @@ export default async function ImportBatchPage({
         validRows: true,
         invalidRows: true,
         warningCount: true,
+        verificationStartedAt: true,
+        verifiedAt: true,
+        failureReason: true,
         submittedAt: true,
         publishedAt: true,
         uploadedAt: true,
@@ -218,6 +221,9 @@ export default async function ImportBatchPage({
           ...batch,
           submittedAt: batch.submittedAt?.toISOString() ?? null,
           publishedAt: batch.publishedAt?.toISOString() ?? null,
+          verificationStartedAt:
+            batch.verificationStartedAt?.toISOString() ?? null,
+          verifiedAt: batch.verifiedAt?.toISOString() ?? null,
           uploadedAt: batch.uploadedAt.toISOString(),
           frozen: Boolean(
             batch.submittedAt || batch.publishedAt,
@@ -280,6 +286,7 @@ export default async function ImportBatchPage({
         canEditStaging={
           !batch.submittedAt &&
           !batch.publishedAt &&
+          (batch.status === "VALIDATED" || batch.status === "INVALID") &&
           permissions.has(PERMISSIONS.IMPORT_CREATE)
         }
         canPublish={permissions.has(PERMISSIONS.IMPORT_APPROVE)}
