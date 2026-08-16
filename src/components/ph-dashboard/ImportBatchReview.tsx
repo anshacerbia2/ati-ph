@@ -3,14 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { DataPagination } from "@/components/ui/DataPagination";
 import { mountedPath } from "@/config/app";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
+import type { PaginationMeta } from "@/lib/pagination";
 import {
   validationFieldLabel,
   validationIssueTitle,
 } from "@/imports/issue-display";
-
-const REVIEW_PAGE_SIZE = 10;
 
 type ReviewIssue = {
   id: string;
@@ -108,6 +108,10 @@ export function ImportBatchReview({
   canApprove,
   canPublish,
   currentUserId,
+  openWarningCount,
+  errorCount,
+  pagination,
+  publicationMetrics,
 }: {
   batch: ReviewBatch;
   activeRegions: RegionOption[];
@@ -116,6 +120,17 @@ export function ImportBatchReview({
   canApprove: boolean;
   canPublish: boolean;
   currentUserId: string;
+  openWarningCount: number;
+  errorCount: number;
+  pagination: {
+    rows: PaginationMeta;
+    issues: PaginationMeta;
+    published: PaginationMeta;
+  };
+  publicationMetrics: {
+    regionLinks: number;
+    calendarDates: number;
+  };
 }) {
   const router = useRouter();
   const [busyKey, setBusyKey] = useState<string>();
@@ -163,11 +178,6 @@ export function ImportBatchReview({
     }
   }
 
-  const unacknowledgedWarnings = batch.issues.filter(
-    (issue) =>
-      issue.severity === "WARNING" && !issue.acknowledgedAt,
-  ).length;
-
   return (
     <>
       <section className="ati-card import-review-summary">
@@ -203,7 +213,7 @@ export function ImportBatchReview({
           </div>
           <div>
             <dt>Warnings open</dt>
-            <dd>{unacknowledgedWarnings}</dd>
+            <dd>{openWarningCount}</dd>
           </div>
         </dl>
 
@@ -258,10 +268,16 @@ export function ImportBatchReview({
         canPublish={canPublish}
         canSubmit={canEditStaging}
         currentUserId={currentUserId}
+        errorCount={errorCount}
+        openWarningCount={openWarningCount}
         mutate={mutate}
       />
 
-      <PublicationLineage batch={batch} />
+      <PublicationLineage
+        batch={batch}
+        pagination={pagination.published}
+        publicationMetrics={publicationMetrics}
+      />
 
       <StagingRows
         activeRegions={activeRegions}
@@ -269,6 +285,7 @@ export function ImportBatchReview({
         busyKey={busyKey}
         canEdit={canEditStaging}
         mutate={mutate}
+        pagination={pagination.rows}
       />
 
       <ValidationIssues
@@ -276,6 +293,7 @@ export function ImportBatchReview({
         busyKey={busyKey}
         canAcknowledge={canEditStaging}
         mutate={mutate}
+        pagination={pagination.issues}
       />
     </>
   );
@@ -290,6 +308,8 @@ function ApprovalPanel({
   currentUserId,
   busyKey,
   mutate,
+  openWarningCount,
+  errorCount,
 }: {
   batch: ReviewBatch;
   approvals: ApprovalView[];
@@ -297,6 +317,8 @@ function ApprovalPanel({
   canApprove: boolean;
   canPublish: boolean;
   currentUserId: string;
+  openWarningCount: number;
+  errorCount: number;
   busyKey?: string;
   mutate: (
     key: string,
@@ -311,16 +333,12 @@ function ApprovalPanel({
   const pending = approvals.find(
     (approval) => approval.status === "PENDING",
   );
-  const openWarnings = batch.issues.filter(
-    (issue) =>
-      issue.severity === "WARNING" && !issue.acknowledgedAt,
-  ).length;
   const eligible =
     batch.status === "VALIDATED" &&
     batch.invalidRows === 0 &&
     batch.validRows > 0 &&
-    openWarnings === 0 &&
-    !batch.issues.some((issue) => issue.severity === "ERROR");
+    openWarningCount === 0 &&
+    errorCount === 0;
 
   async function submit() {
     await mutate(
@@ -544,44 +562,19 @@ function ApprovalPanel({
 
 function PublicationLineage({
   batch,
+  pagination,
+  publicationMetrics,
 }: {
   batch: ReviewBatch;
+  pagination: PaginationMeta;
+  publicationMetrics: {
+    regionLinks: number;
+    calendarDates: number;
+  };
 }) {
-  const [publicationPage, setPublicationPage] = useState(1);
-
   if (!batch.publishedAt) {
     return null;
   }
-
-  const dateCount = batch.publishedOccurrences.reduce(
-    (total, occurrence) => total + occurrence.dates.length,
-    0,
-  );
-  const regionCount = batch.publishedOccurrences.reduce(
-    (total, occurrence) =>
-      total + occurrence.regionCodes.length,
-    0,
-  );
-  const publicationPageCount = Math.max(
-    1,
-    Math.ceil(
-      batch.publishedOccurrences.length / REVIEW_PAGE_SIZE,
-    ),
-  );
-  const safePublicationPage = Math.min(
-    publicationPage,
-    publicationPageCount,
-  );
-  const publicationPageStart =
-    (safePublicationPage - 1) * REVIEW_PAGE_SIZE;
-  const publicationPageRows = batch.publishedOccurrences.slice(
-    publicationPageStart,
-    publicationPageStart + REVIEW_PAGE_SIZE,
-  );
-  const publicationPageEnd = Math.min(
-    publicationPageStart + publicationPageRows.length,
-    batch.publishedOccurrences.length,
-  );
 
   return (
     <section className="ati-card publication-lineage">
@@ -603,15 +596,15 @@ function PublicationLineage({
       <dl className="import-metrics">
         <div>
           <dt>Occurrences</dt>
-          <dd>{batch.publishedOccurrences.length}</dd>
+          <dd>{pagination.total}</dd>
         </div>
         <div>
           <dt>Region links</dt>
-          <dd>{regionCount}</dd>
+          <dd>{publicationMetrics.regionLinks}</dd>
         </div>
         <div>
           <dt>Calendar dates</dt>
-          <dd>{dateCount}</dd>
+          <dd>{publicationMetrics.calendarDates}</dd>
         </div>
         <div>
           <dt>Published</dt>
@@ -636,7 +629,7 @@ function PublicationLineage({
             </tr>
           </thead>
           <tbody>
-            {publicationPageRows.map((occurrence) => (
+            {batch.publishedOccurrences.map((occurrence) => (
               <tr key={occurrence.id}>
                 <td>
                   <div className="publication-lineage__holiday">
@@ -682,14 +675,9 @@ function PublicationLineage({
         </table>
       </div>
 
-      <ReviewPagination
-        end={publicationPageEnd}
+      <DataPagination
         label="Occurrences"
-        onPageChange={setPublicationPage}
-        page={safePublicationPage}
-        pageCount={publicationPageCount}
-        start={publicationPageStart}
-        total={batch.publishedOccurrences.length}
+        pagination={pagination}
       />
     </section>
   );
@@ -701,6 +689,7 @@ function StagingRows({
   canEdit,
   busyKey,
   mutate,
+  pagination,
 }: {
   batch: ReviewBatch;
   activeRegions: RegionOption[];
@@ -711,27 +700,8 @@ function StagingRows({
     url: string,
     body: unknown,
   ) => Promise<boolean>;
+  pagination: PaginationMeta;
 }) {
-  const [stagingPage, setStagingPage] = useState(1);
-  const stagingPageCount = Math.max(
-    1,
-    Math.ceil(batch.rows.length / REVIEW_PAGE_SIZE),
-  );
-  const safeStagingPage = Math.min(
-    stagingPage,
-    stagingPageCount,
-  );
-  const stagingPageStart =
-    (safeStagingPage - 1) * REVIEW_PAGE_SIZE;
-  const stagingPageRows = batch.rows.slice(
-    stagingPageStart,
-    stagingPageStart + REVIEW_PAGE_SIZE,
-  );
-  const stagingPageEnd = Math.min(
-    stagingPageStart + stagingPageRows.length,
-    batch.rows.length,
-  );
-
   return (
     <section
       className="ati-card import-staging"
@@ -755,28 +725,53 @@ function StagingRows({
         ) : null}
       </div>
 
-      <div className="staging-row-list">
-        {stagingPageRows.map((row) => (
-          <StagingRowEditor
-            activeRegions={activeRegions}
-            batchId={batch.id}
-            busyKey={busyKey}
-            canEdit={canEdit}
-            key={row.id}
-            mutate={mutate}
-            row={row}
-          />
-        ))}
-      </div>
+      {pagination.total === 0 ? (
+        <p className="region-empty">
+          No normalized staging rows were recorded.
+        </p>
+      ) : (
+        <div className="staging-table-wrap">
+          <table className="staging-table">
+            <colgroup>
+              <col className="staging-table__col--source" />
+              <col className="staging-table__col--holiday" />
+              <col className="staging-table__col--period" />
+              <col className="staging-table__col--regions" />
+              <col className="staging-table__col--status" />
+              <col className="staging-table__col--changed" />
+              <col className="staging-table__col--actions" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Source row</th>
+                <th scope="col">Holiday</th>
+                <th scope="col">Period</th>
+                <th scope="col">Regions</th>
+                <th scope="col">Status</th>
+                <th scope="col">Last changed</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {batch.rows.map((row) => (
+                <StagingRowEditor
+                  activeRegions={activeRegions}
+                  batchId={batch.id}
+                  busyKey={busyKey}
+                  canEdit={canEdit}
+                  key={row.id}
+                  mutate={mutate}
+                  row={row}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <ReviewPagination
-        end={stagingPageEnd}
+      <DataPagination
         label="Rows"
-        onPageChange={setStagingPage}
-        page={safeStagingPage}
-        pageCount={stagingPageCount}
-        start={stagingPageStart}
-        total={batch.rows.length}
+        pagination={pagination}
       />
     </section>
   );
@@ -877,267 +872,302 @@ function StagingRowEditor({
   }
 
   return (
-    <article
-      className={
-        row.status === "EXCLUDED"
-          ? "staging-row staging-row--excluded"
-          : "staging-row"
-      }
-    >
-      <div className="staging-row__summary">
-        <div className="staging-row__number">
-          <span>Row</span>
-          <strong>{row.sourceRowNumber}</strong>
-        </div>
-
-        <div className="staging-row__holiday">
-          <strong>
-            {row.normalizedData.holidayName || "Unnamed holiday"}
-          </strong>
-          <span>
-            {row.normalizedData.startDate ?? "No start date"} →{" "}
-            {row.normalizedData.endDate ?? "No end date"}
-          </span>
-        </div>
-
-        <div className="staging-row__regions">
-          {row.normalizedData.regionCodes.length > 0
-            ? row.normalizedData.regionCodes.map((code) => (
-                <span
-                  className="region-alias-chip"
-                  key={code}
-                >
-                  {code}
-                </span>
-              ))
-            : (
-              <span className="staging-row__missing">
-                No resolved region
+    <>
+      <tr
+        className={
+          row.status === "EXCLUDED"
+            ? "staging-table__row staging-table__row--excluded"
+            : "staging-table__row"
+        }
+      >
+        <td>
+          <div className="staging-table__source">
+            <strong>{row.sourceRowNumber}</strong>
+            <span>{row.sourceSheet}</span>
+          </div>
+        </td>
+        <td>
+          <div className="staging-table__holiday">
+            <strong>
+              {row.normalizedData.holidayName || "Unnamed holiday"}
+            </strong>
+            {row.normalizedData.sourceReference ? (
+              <span title={row.normalizedData.sourceReference}>
+                Ref: {row.normalizedData.sourceReference}
               </span>
-            )}
-        </div>
-
-        <span className={rowStatusBadge(row.status)}>
-          {row.status}
-        </span>
-
-        {canEdit ? (
-          <div className="staging-row__actions">
-            {row.status === "EXCLUDED" ? (
-              <button
-                className="ati-btn ati-btn--compact ati-btn--subtle"
-                disabled={busyKey === `restore-${row.id}`}
-                onClick={() =>
-                  void mutate(
-                    `restore-${row.id}`,
-                    rowUrl,
-                    { action: "RESTORE" },
-                  )
-                }
-                type="button"
-              >
-                Restore
-              </button>
-            ) : (
+            ) : null}
+          </div>
+        </td>
+        <td>
+          <div className="staging-table__period">
+            <span>
+              {row.normalizedData.startDate ?? "No start date"}
+            </span>
+            <span>
+              → {row.normalizedData.endDate ?? "No end date"}
+            </span>
+          </div>
+        </td>
+        <td>
+          <div className="staging-table__regions">
+            {row.normalizedData.regionCodes.length > 0
+              ? row.normalizedData.regionCodes.map((code) => (
+                  <span
+                    className="region-alias-chip"
+                    key={code}
+                  >
+                    {code}
+                  </span>
+                ))
+              : (
+                <span className="staging-row__missing">
+                  No resolved region
+                </span>
+              )}
+          </div>
+        </td>
+        <td>
+          <div className="staging-table__status">
+            <span className={rowStatusBadge(row.status)}>
+              {row.status}
+            </span>
+            {row.excludedReason ? (
+              <small title={row.excludedReason}>
+                {row.excludedReason}
+              </small>
+            ) : null}
+          </div>
+        </td>
+        <td>
+          <div className="staging-table__changed">
+            {row.editedAt ? (
               <>
+                <strong>
+                  {row.editedBy ?? "Authorized operator"}
+                </strong>
+                <span>{formatDate(row.editedAt)}</span>
+              </>
+            ) : (
+              <span>—</span>
+            )}
+          </div>
+        </td>
+        <td>
+          {canEdit ? (
+            <div className="staging-table__actions">
+              {row.status === "EXCLUDED" ? (
                 <button
                   className="ati-btn ati-btn--compact ati-btn--subtle"
-                  onClick={() => {
-                    resetEditor();
-                    setExcluding(false);
-                    setEditing((value) => !value);
-                  }}
+                  disabled={busyKey === `restore-${row.id}`}
+                  onClick={() =>
+                    void mutate(
+                      `restore-${row.id}`,
+                      rowUrl,
+                      { action: "RESTORE" },
+                    )
+                  }
                   type="button"
                 >
-                  {editing ? "Close" : "Correct"}
+                  Restore
                 </button>
-                <button
-                  className="ati-btn ati-btn--compact ati-btn--danger-subtle"
-                  onClick={() => {
-                    setEditing(false);
-                    setExcluding((value) => !value);
-                  }}
-                  type="button"
-                >
-                  Exclude
-                </button>
-              </>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {row.excludedReason ? (
-        <p className="staging-row__reason">
-          Excluded: {row.excludedReason}
-        </p>
-      ) : null}
-
-      {row.editedAt ? (
-        <p className="staging-row__edited">
-          Last changed by {row.editedBy ?? "authorized operator"} ·{" "}
-          {formatDate(row.editedAt)}
-        </p>
-      ) : null}
+              ) : (
+                <>
+                  <button
+                    className="ati-btn ati-btn--compact ati-btn--subtle"
+                    onClick={() => {
+                      resetEditor();
+                      setExcluding(false);
+                      setEditing((value) => !value);
+                    }}
+                    type="button"
+                  >
+                    {editing ? "Close" : "Correct"}
+                  </button>
+                  <button
+                    className="ati-btn ati-btn--compact ati-btn--danger-subtle"
+                    onClick={() => {
+                      setEditing(false);
+                      setExcluding((value) => !value);
+                    }}
+                    type="button"
+                  >
+                    Exclude
+                  </button>
+                </>
+              )}
+            </div>
+          ) : (
+            <span className="staging-table__readonly">—</span>
+          )}
+        </td>
+      </tr>
 
       {editing && canEdit ? (
-        <div className="staging-row-editor">
-          <label className="staging-field staging-field--wide">
-            <span>Holiday name</span>
-            <input
-              maxLength={200}
-              onChange={(event) =>
-                setHolidayName(event.target.value)
-              }
-              value={holidayName}
-            />
-          </label>
+        <tr className="staging-table__detail-row">
+          <td colSpan={7}>
+            <div className="staging-row-editor">
+              <label className="staging-field staging-field--wide">
+                <span>Holiday name</span>
+                <input
+                  maxLength={200}
+                  onChange={(event) =>
+                    setHolidayName(event.target.value)
+                  }
+                  value={holidayName}
+                />
+              </label>
 
-          <label className="staging-field">
-            <span>Start date</span>
-            <input
-              onChange={(event) =>
-                setStartDate(event.target.value)
-              }
-              type="date"
-              value={startDate}
-            />
-          </label>
+              <label className="staging-field">
+                <span>Start date</span>
+                <input
+                  onChange={(event) =>
+                    setStartDate(event.target.value)
+                  }
+                  type="date"
+                  value={startDate}
+                />
+              </label>
 
-          <label className="staging-field">
-            <span>End date</span>
-            <input
-              onChange={(event) =>
-                setEndDate(event.target.value)
-              }
-              type="date"
-              value={endDate}
-            />
-          </label>
+              <label className="staging-field">
+                <span>End date</span>
+                <input
+                  onChange={(event) =>
+                    setEndDate(event.target.value)
+                  }
+                  type="date"
+                  value={endDate}
+                />
+              </label>
 
-          <fieldset className="staging-region-picker">
-            <legend>Canonical regions</legend>
-            <div>
-              {activeRegions.map((region) => {
-                const checked = regionCodes.includes(
-                  region.code,
-                );
+              <fieldset className="staging-region-picker">
+                <legend>Canonical regions</legend>
+                <div>
+                  {activeRegions.map((region) => {
+                    const checked = regionCodes.includes(
+                      region.code,
+                    );
 
-                return (
-                  <label key={region.code}>
-                    <input
-                      checked={checked}
-                      onChange={() =>
-                        setRegionCodes((current) =>
-                          checked
-                            ? current.filter(
-                                (code) =>
-                                  code !== region.code,
-                              )
-                            : [...current, region.code],
-                        )
-                      }
-                      type="checkbox"
-                    />
-                    <span>
-                      {region.code} · {region.displayName}
-                    </span>
-                  </label>
-                );
-              })}
+                    return (
+                      <label key={region.code}>
+                        <input
+                          checked={checked}
+                          onChange={() =>
+                            setRegionCodes((current) =>
+                              checked
+                                ? current.filter(
+                                    (code) =>
+                                      code !== region.code,
+                                  )
+                                : [...current, region.code],
+                            )
+                          }
+                          type="checkbox"
+                        />
+                        <span>
+                          {region.code} · {region.displayName}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label className="staging-field staging-field--wide">
+                <span>Source reference</span>
+                <input
+                  maxLength={500}
+                  onChange={(event) =>
+                    setSourceReference(event.target.value)
+                  }
+                  value={sourceReference}
+                />
+              </label>
+
+              <label className="staging-field staging-field--wide">
+                <span>Notes</span>
+                <textarea
+                  maxLength={2000}
+                  onChange={(event) =>
+                    setNotes(event.target.value)
+                  }
+                  rows={2}
+                  value={notes}
+                />
+              </label>
+
+              <div className="staging-row-editor__actions">
+                <button
+                  className="ati-btn ati-btn--compact"
+                  disabled={
+                    busyKey === `correct-${row.id}` ||
+                    !holidayName.trim() ||
+                    !startDate ||
+                    !endDate ||
+                    regionCodes.length === 0
+                  }
+                  onClick={() => void saveCorrection()}
+                  type="button"
+                >
+                  {busyKey === `correct-${row.id}`
+                    ? "Saving…"
+                    : "Save correction"}
+                </button>
+                <button
+                  className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
+                  onClick={() => {
+                    resetEditor();
+                    setEditing(false);
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-          </fieldset>
-
-          <label className="staging-field staging-field--wide">
-            <span>Source reference</span>
-            <input
-              maxLength={500}
-              onChange={(event) =>
-                setSourceReference(event.target.value)
-              }
-              value={sourceReference}
-            />
-          </label>
-
-          <label className="staging-field staging-field--wide">
-            <span>Notes</span>
-            <textarea
-              maxLength={2000}
-              onChange={(event) =>
-                setNotes(event.target.value)
-              }
-              rows={2}
-              value={notes}
-            />
-          </label>
-
-          <div className="staging-row-editor__actions">
-            <button
-              className="ati-btn ati-btn--compact"
-              disabled={
-                busyKey === `correct-${row.id}` ||
-                !holidayName.trim() ||
-                !startDate ||
-                !endDate ||
-                regionCodes.length === 0
-              }
-              onClick={() => void saveCorrection()}
-              type="button"
-            >
-              {busyKey === `correct-${row.id}`
-                ? "Saving…"
-                : "Save correction"}
-            </button>
-            <button
-              className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
-              onClick={() => {
-                resetEditor();
-                setEditing(false);
-              }}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+          </td>
+        </tr>
       ) : null}
 
       {excluding && canEdit ? (
-        <div className="staging-exclusion">
-          <label>
-            <span>Exclusion reason</span>
-            <input
-              maxLength={500}
-              onChange={(event) =>
-                setExcludeReason(event.target.value)
-              }
-              placeholder="Why must this source row not be published?"
-              value={excludeReason}
-            />
-          </label>
-          <div>
-            <button
-              className="ati-btn ati-btn--compact ati-btn--danger-subtle"
-              disabled={
-                busyKey === `exclude-${row.id}` ||
-                excludeReason.trim().length < 5
-              }
-              onClick={() => void excludeRow()}
-              type="button"
-            >
-              Confirm exclusion
-            </button>
-            <button
-              className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
-              onClick={() => setExcluding(false)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        <tr className="staging-table__detail-row">
+          <td colSpan={7}>
+            <div className="staging-exclusion">
+              <label>
+                <span>Exclusion reason</span>
+                <input
+                  maxLength={500}
+                  onChange={(event) =>
+                    setExcludeReason(event.target.value)
+                  }
+                  placeholder="Why must this source row not be published?"
+                  value={excludeReason}
+                />
+              </label>
+              <div>
+                <button
+                  className="ati-btn ati-btn--compact ati-btn--danger-subtle"
+                  disabled={
+                    busyKey === `exclude-${row.id}` ||
+                    excludeReason.trim().length < 5
+                  }
+                  onClick={() => void excludeRow()}
+                  type="button"
+                >
+                  Confirm exclusion
+                </button>
+                <button
+                  className="ati-btn ati-btn--compact ati-btn--neutral-subtle"
+                  onClick={() => setExcluding(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
       ) : null}
-    </article>
+    </>
   );
 }
 
@@ -1146,6 +1176,7 @@ function ValidationIssues({
   canAcknowledge,
   busyKey,
   mutate,
+  pagination,
 }: {
   batch: ReviewBatch;
   canAcknowledge: boolean;
@@ -1155,27 +1186,8 @@ function ValidationIssues({
     url: string,
     body: unknown,
   ) => Promise<boolean>;
+  pagination: PaginationMeta;
 }) {
-  const [validationPage, setValidationPage] = useState(1);
-  const validationPageCount = Math.max(
-    1,
-    Math.ceil(batch.issues.length / REVIEW_PAGE_SIZE),
-  );
-  const safeValidationPage = Math.min(
-    validationPage,
-    validationPageCount,
-  );
-  const validationPageStart =
-    (safeValidationPage - 1) * REVIEW_PAGE_SIZE;
-  const validationPageIssues = batch.issues.slice(
-    validationPageStart,
-    validationPageStart + REVIEW_PAGE_SIZE,
-  );
-  const validationPageEnd = Math.min(
-    validationPageStart + validationPageIssues.length,
-    batch.issues.length,
-  );
-
   return (
     <section className="ati-card import-review-issues">
       <div className="import-review-issues__header">
@@ -1188,17 +1200,17 @@ function ValidationIssues({
           </p>
         </div>
         <span className="ati-badge ati-badge--brand">
-          {batch.issues.length} issues
+          {pagination.total} issues
         </span>
       </div>
 
-      {batch.issues.length === 0 ? (
+      {pagination.total === 0 ? (
         <p className="region-empty">
           No validation issues were recorded.
         </p>
       ) : (
         <div className="import-review-issue-list">
-          {validationPageIssues.map((issue) => (
+          {batch.issues.map((issue) => (
             <article
               className="import-review-issue"
               key={issue.id}
@@ -1287,77 +1299,15 @@ function ValidationIssues({
         </div>
       )}
 
-      <ReviewPagination
-        end={validationPageEnd}
+      <DataPagination
         label="Issues"
-        onPageChange={setValidationPage}
-        page={safeValidationPage}
-        pageCount={validationPageCount}
-        start={validationPageStart}
-        total={batch.issues.length}
+        pagination={pagination}
       />
     </section>
   );
 }
 
-function ReviewPagination({
-  label,
-  page,
-  pageCount,
-  start,
-  end,
-  total,
-  onPageChange,
-}: {
-  label: string;
-  page: number;
-  pageCount: number;
-  start: number;
-  end: number;
-  total: number;
-  onPageChange: (page: number) => void;
-}) {
-  if (pageCount <= 1) {
-    return null;
-  }
 
-  return (
-    <div
-      className="review-pagination"
-      aria-label={label + " pagination"}
-    >
-      <span>
-        {label} {start + 1}-{end} of {total}
-      </span>
-
-      <div className="review-pagination__actions">
-        <button
-          className="ati-btn ati-btn--compact ati-btn--subtle"
-          disabled={page <= 1}
-          onClick={() => onPageChange(Math.max(1, page - 1))}
-          type="button"
-        >
-          Previous
-        </button>
-
-        <span>
-          Page {page} of {pageCount}
-        </span>
-
-        <button
-          className="ati-btn ati-btn--compact ati-btn--subtle"
-          disabled={page >= pageCount}
-          onClick={() =>
-            onPageChange(Math.min(pageCount, page + 1))
-          }
-          type="button"
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function statusBadge(status: ReviewBatch["status"]): string {
   if (status === "VALIDATED") {

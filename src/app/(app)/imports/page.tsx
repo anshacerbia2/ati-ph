@@ -6,9 +6,19 @@ import { getCurrentSession } from "@/auth/session";
 import { AccessDenied } from "@/components/app-shell/AccessDenied";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { ImportWorkspace } from "@/components/ph-dashboard/ImportWorkspace";
+import { RecentImportsTable } from "@/components/ph-dashboard/RecentImportsTable";
 import { db } from "@/lib/db";
+import {
+  createPagination,
+  parsePageParam,
+  type SearchParamsRecord,
+} from "@/lib/pagination";
 
-export default async function ImportsPage() {
+export default async function ImportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParamsRecord>;
+}) {
   const session = await getCurrentSession();
 
   if (!session) {
@@ -22,10 +32,24 @@ export default async function ImportsPage() {
     return <AccessDenied />;
   }
 
+  const query = await searchParams;
+  const recentImportTotal = await db.importBatch.count();
+  const recentImportPagination = createPagination({
+    total: recentImportTotal,
+    requestedPage: parsePageParam(query.importsPage),
+    pathname: "/imports",
+    pageParam: "importsPage",
+    searchParams: query,
+  });
+
   const [recentImports, previewAliases] = await Promise.all([
     db.importBatch.findMany({
-      orderBy: { uploadedAt: "desc" },
-      take: 20,
+      orderBy: [
+        { uploadedAt: "desc" },
+        { id: "desc" },
+      ],
+      skip: recentImportPagination.offset,
+      take: recentImportPagination.pageSize,
       select: {
         id: true,
         batchNumber: true,
@@ -73,7 +97,10 @@ export default async function ImportsPage() {
           in: recentImports.map((batch) => batch.id),
         },
       },
-      orderBy: { requestedAt: "desc" },
+      orderBy: [
+        { requestedAt: "desc" },
+        { id: "desc" },
+      ],
       select: {
         resourceId: true,
         status: true,
@@ -104,6 +131,10 @@ export default async function ImportsPage() {
           normalizedAlias: entry.normalizedAlias,
           regionCode: entry.region.code,
         }))}
+      />
+
+      <RecentImportsTable
+        pagination={recentImportPagination}
         recentImports={recentImports.map((batch) => ({
           ...batch,
           uploadedAt: batch.uploadedAt.toISOString(),

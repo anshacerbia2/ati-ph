@@ -8,11 +8,18 @@ import { PageHeader } from "@/components/app-shell/PageHeader";
 import { ImportBatchReview } from "@/components/ph-dashboard/ImportBatchReview";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
 import { db } from "@/lib/db";
+import {
+  createPagination,
+  parsePageParam,
+  type SearchParamsRecord,
+} from "@/lib/pagination";
 
 export default async function ImportBatchPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ batchId: string }>;
+  searchParams: Promise<SearchParamsRecord>;
 }) {
   const session = await getCurrentSession();
   if (!session) {
@@ -26,126 +33,87 @@ export default async function ImportBatchPage({
     return <AccessDenied />;
   }
 
-  const { batchId } = await params;
-  const [batch, activeRegions, approvals] = await Promise.all([
-    db.importBatch.findUnique({
-      where: { id: batchId },
-      select: {
-        id: true,
-        batchNumber: true,
-        sourceName: true,
-        status: true,
-        schemaVersion: true,
-        totalRows: true,
-        validRows: true,
-        invalidRows: true,
-        warningCount: true,
-        verificationStartedAt: true,
-        verifiedAt: true,
-        failureReason: true,
-        submittedAt: true,
-        publishedAt: true,
-        uploadedAt: true,
-        uploadedBy: {
-          select: {
-            displayName: true,
-            email: true,
-          },
+  const [{ batchId }, query] = await Promise.all([
+    params,
+    searchParams,
+  ]);
+
+  const batch = await db.importBatch.findUnique({
+    where: { id: batchId },
+    select: {
+      id: true,
+      batchNumber: true,
+      sourceName: true,
+      status: true,
+      schemaVersion: true,
+      totalRows: true,
+      validRows: true,
+      invalidRows: true,
+      warningCount: true,
+      verificationStartedAt: true,
+      verifiedAt: true,
+      failureReason: true,
+      submittedAt: true,
+      publishedAt: true,
+      uploadedAt: true,
+      uploadedBy: {
+        select: {
+          displayName: true,
+          email: true,
         },
-        rows: {
-          orderBy: [
-            { sourceSheet: "asc" },
-            { sourceRowNumber: "asc" },
-          ],
-          select: {
-            id: true,
-            sourceSheet: true,
-            sourceRowNumber: true,
-            status: true,
-            normalizedData: true,
-            excludedReason: true,
-            editedAt: true,
-            editedBy: {
-              select: {
-                displayName: true,
-                email: true,
-              },
-            },
-          },
+      },
+    },
+  });
+
+  if (!batch) {
+    notFound();
+  }
+
+  const [
+    rowTotal,
+    issueTotal,
+    publishedOccurrenceTotal,
+    publishedRegionLinkTotal,
+    publishedDateTotal,
+    openWarningCount,
+    errorCount,
+    activeRegions,
+    approvals,
+  ] = await Promise.all([
+    db.importRow.count({
+      where: { importBatchId: batchId },
+    }),
+    db.importValidationIssue.count({
+      where: { importBatchId: batchId },
+    }),
+    db.holidayOccurrence.count({
+      where: { sourceImportBatchId: batchId },
+    }),
+    db.holidayOccurrenceRegion.count({
+      where: {
+        occurrence: {
+          sourceImportBatchId: batchId,
         },
-        issues: {
-          orderBy: [
-            { severity: "asc" },
-            { createdAt: "asc" },
-            { id: "asc" },
-          ],
-          select: {
-            id: true,
-            severity: true,
-            errorCode: true,
-            fieldName: true,
-            rejectedValue: true,
-            message: true,
-            acknowledgedAt: true,
-            acknowledgedBy: {
-              select: {
-                displayName: true,
-                email: true,
-              },
-            },
-            importRow: {
-              select: {
-                sourceSheet: true,
-                sourceRowNumber: true,
-              },
-            },
-          },
+      },
+    }),
+    db.holidayOccurrenceDate.count({
+      where: {
+        occurrence: {
+          sourceImportBatchId: batchId,
         },
-        publishedOccurrences: {
-          orderBy: [
-            { startDate: "asc" },
-            { id: "asc" },
-          ],
-          select: {
-            id: true,
-            startDate: true,
-            endDate: true,
-            calendarYear: true,
-            publishedAt: true,
-            definition: {
-              select: {
-                canonicalName: true,
-              },
-            },
-            sourceImportRow: {
-              select: {
-                sourceRowNumber: true,
-              },
-            },
-            regions: {
-              orderBy: {
-                calendarRegion: {
-                  code: "asc",
-                },
-              },
-              select: {
-                calendarRegion: {
-                  select: {
-                    code: true,
-                  },
-                },
-              },
-            },
-            dates: {
-              orderBy: { occurrenceDate: "asc" },
-              select: {
-                occurrenceDate: true,
-                dayOfWeek: true,
-                dayType: true,
-              },
-            },
-          },
-        },
+      },
+    }),
+    db.importValidationIssue.count({
+      where: {
+        importBatchId: batchId,
+        severity: "WARNING",
+        acknowledgedAt: null,
+      },
+    }),
+    db.importValidationIssue.count({
+      where: {
+        importBatchId: batchId,
+        severity: "ERROR",
       },
     }),
     db.calendarRegion.findMany({
@@ -161,7 +129,10 @@ export default async function ImportBatchPage({
         resourceType: "ImportBatch",
         resourceId: batchId,
       },
-      orderBy: { requestedAt: "desc" },
+      orderBy: [
+        { requestedAt: "desc" },
+        { id: "desc" },
+      ],
       take: 5,
       select: {
         id: true,
@@ -187,9 +158,135 @@ export default async function ImportBatchPage({
     }),
   ]);
 
-  if (!batch) {
-    notFound();
-  }
+  const pathname = `/imports/${batchId}`;
+  const rowPagination = createPagination({
+    total: rowTotal,
+    requestedPage: parsePageParam(query.rowsPage),
+    pathname,
+    pageParam: "rowsPage",
+    searchParams: query,
+  });
+  const issuePagination = createPagination({
+    total: issueTotal,
+    requestedPage: parsePageParam(query.issuesPage),
+    pathname,
+    pageParam: "issuesPage",
+    searchParams: query,
+  });
+  const publishedPagination = createPagination({
+    total: publishedOccurrenceTotal,
+    requestedPage: parsePageParam(query.publishedPage),
+    pathname,
+    pageParam: "publishedPage",
+    searchParams: query,
+  });
+
+  const [rows, issues, publishedOccurrences] = await Promise.all([
+    db.importRow.findMany({
+      where: { importBatchId: batchId },
+      orderBy: [
+        { sourceSheet: "asc" },
+        { sourceRowNumber: "asc" },
+        { id: "asc" },
+      ],
+      skip: rowPagination.offset,
+      take: rowPagination.pageSize,
+      select: {
+        id: true,
+        sourceSheet: true,
+        sourceRowNumber: true,
+        status: true,
+        normalizedData: true,
+        excludedReason: true,
+        editedAt: true,
+        editedBy: {
+          select: {
+            displayName: true,
+            email: true,
+          },
+        },
+      },
+    }),
+    db.importValidationIssue.findMany({
+      where: { importBatchId: batchId },
+      orderBy: [
+        { severity: "asc" },
+        { createdAt: "asc" },
+        { id: "asc" },
+      ],
+      skip: issuePagination.offset,
+      take: issuePagination.pageSize,
+      select: {
+        id: true,
+        severity: true,
+        errorCode: true,
+        fieldName: true,
+        rejectedValue: true,
+        message: true,
+        acknowledgedAt: true,
+        acknowledgedBy: {
+          select: {
+            displayName: true,
+            email: true,
+          },
+        },
+        importRow: {
+          select: {
+            sourceSheet: true,
+            sourceRowNumber: true,
+          },
+        },
+      },
+    }),
+    db.holidayOccurrence.findMany({
+      where: { sourceImportBatchId: batchId },
+      orderBy: [
+        { startDate: "asc" },
+        { id: "asc" },
+      ],
+      skip: publishedPagination.offset,
+      take: publishedPagination.pageSize,
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        calendarYear: true,
+        publishedAt: true,
+        definition: {
+          select: {
+            canonicalName: true,
+          },
+        },
+        sourceImportRow: {
+          select: {
+            sourceRowNumber: true,
+          },
+        },
+        regions: {
+          orderBy: {
+            calendarRegion: {
+              code: "asc",
+            },
+          },
+          select: {
+            calendarRegion: {
+              select: {
+                code: true,
+              },
+            },
+          },
+        },
+        dates: {
+          orderBy: { occurrenceDate: "asc" },
+          select: {
+            occurrenceDate: true,
+            dayOfWeek: true,
+            dayType: true,
+          },
+        },
+      },
+    }),
+  ]);
 
   return (
     <div className="page-stack">
@@ -228,7 +325,7 @@ export default async function ImportBatchPage({
           frozen: Boolean(
             batch.submittedAt || batch.publishedAt,
           ),
-          rows: batch.rows.map((row) => ({
+          rows: rows.map((row) => ({
             ...row,
             normalizedData:
               row.normalizedData as unknown as NormalizedHolidayRow,
@@ -238,7 +335,7 @@ export default async function ImportBatchPage({
               row.editedBy?.email ??
               null,
           })),
-          issues: batch.issues.map((issue) => ({
+          issues: issues.map((issue) => ({
             ...issue,
             acknowledgedAt:
               issue.acknowledgedAt?.toISOString() ?? null,
@@ -252,7 +349,7 @@ export default async function ImportBatchPage({
             importRow: undefined,
           })),
           publishedOccurrences:
-            batch.publishedOccurrences.map((occurrence) => ({
+            publishedOccurrences.map((occurrence) => ({
               id: occurrence.id,
               holidayName:
                 occurrence.definition.canonicalName,
@@ -291,6 +388,17 @@ export default async function ImportBatchPage({
         }
         canPublish={permissions.has(PERMISSIONS.IMPORT_APPROVE)}
         currentUserId={session.user.id}
+        errorCount={errorCount}
+        openWarningCount={openWarningCount}
+        pagination={{
+          issues: issuePagination,
+          published: publishedPagination,
+          rows: rowPagination,
+        }}
+        publicationMetrics={{
+          calendarDates: publishedDateTotal,
+          regionLinks: publishedRegionLinkTotal,
+        }}
       />
     </div>
   );

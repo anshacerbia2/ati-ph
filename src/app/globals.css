@@ -1851,3 +1851,127 @@ tbody tr:hover { background: var(--ati-gray-50); }
     flex-direction: column;
   }
 }
+
+/* Shared backend pagination + normalized staging table */
+.data-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+}
+
+.data-pagination__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.staging-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--ati-white);
+}
+
+.staging-table {
+  width: 100%;
+  min-width: 1120px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.staging-table th {
+  padding: 10px 12px;
+  border: 0;
+  background: var(--ati-gray-50);
+  text-align: left;
+}
+
+.staging-table td {
+  padding: 12px;
+  border-top: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+
+.staging-table__col--source { width: 90px; }
+.staging-table__col--holiday { width: 235px; }
+.staging-table__col--period { width: 165px; }
+.staging-table__col--regions { width: 175px; }
+.staging-table__col--status { width: 130px; }
+.staging-table__col--changed { width: 190px; }
+.staging-table__col--actions { width: 170px; }
+
+.staging-table__row--excluded td {
+  background: var(--ati-gray-50);
+}
+
+.staging-table__source,
+.staging-table__holiday,
+.staging-table__period,
+.staging-table__status,
+.staging-table__changed {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.staging-table__source strong,
+.staging-table__holiday strong,
+.staging-table__changed strong {
+  color: var(--text-strong);
+  font-size: var(--fs-xs);
+}
+
+.staging-table__source span,
+.staging-table__holiday span,
+.staging-table__period span,
+.staging-table__status small,
+.staging-table__changed span,
+.staging-table__readonly {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.staging-table__holiday strong,
+.staging-table__holiday span,
+.staging-table__status small,
+.staging-table__changed strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.staging-table__regions,
+.staging-table__actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.staging-table__actions {
+  justify-content: flex-end;
+}
+
+.staging-table__detail-row td {
+  padding: 0;
+  background: var(--ati-gray-50);
+}
+
+.staging-table__detail-row .staging-row-editor,
+.staging-table__detail-row .staging-exclusion {
+  margin: 12px;
+}
+
+@media (max-width: 760px) {
+  .data-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
