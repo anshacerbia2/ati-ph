@@ -2014,3 +2014,32 @@ tbody tr:hover { background: var(--ati-gray-50); }
   font-size: var(--fs-micro);
   line-height: 1.45;
 }
+
+/* Revision UX refinement v1 */
+.publication-lineage__revision {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.publication-lineage__revision .revision-id {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.publication-lineage__revision .copy-button {
+  width: fit-content;
+  flex: 0 0 auto;
+}
+
+.staging-table__actions {
+  width: fit-content;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+
+.staging-table__actions .ati-btn {
+  width: fit-content;
+  flex: 0 0 auto;
+}

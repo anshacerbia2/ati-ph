@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { CopyButton } from "@/components/ui/CopyButton";
 import { DataPagination } from "@/components/ui/DataPagination";
 import { mountedPath } from "@/config/app";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
@@ -638,12 +639,18 @@ function PublicationLineage({
             {batch.publishedOccurrences.map((occurrence) => (
               <tr key={occurrence.id}>
                 <td>
-                  <code
-                    className="revision-id"
-                    title={occurrence.id}
-                  >
-                    {occurrence.id}
-                  </code>
+                  <div className="publication-lineage__revision">
+                    <code
+                      className="revision-id"
+                      title={occurrence.id}
+                    >
+                      {occurrence.id}
+                    </code>
+                    <CopyButton
+                      label="Copy"
+                      value={occurrence.id}
+                    />
+                  </div>
                 </td>
                 <td>
                   <div className="publication-lineage__holiday">
@@ -831,7 +838,7 @@ function StagingRowEditor({
   const [editing, setEditing] = useState(false);
   const [excluding, setExcluding] = useState(false);
   const [revisionId, setRevisionId] = useState(
-    row.revisionId,
+    revisionInputValue(row),
   );
   const [holidayName, setHolidayName] = useState(
     row.normalizedData.holidayName,
@@ -856,7 +863,7 @@ function StagingRowEditor({
     `/api/imports/${batchId}/rows/${row.id}`;
 
   function resetEditor() {
-    setRevisionId(row.revisionId);
+    setRevisionId(revisionInputValue(row));
     setHolidayName(row.normalizedData.holidayName);
     setStartDate(row.normalizedData.startDate ?? "");
     setEndDate(row.normalizedData.endDate ?? "");
@@ -871,7 +878,7 @@ function StagingRowEditor({
       {
         action: "CORRECT",
         correction: {
-          revisionId,
+          revisionId: revisionId.trim() || row.id,
           holidayName,
           regionCodes,
           startDate,
@@ -917,12 +924,14 @@ function StagingRowEditor({
           </div>
         </td>
         <td>
-          <code
-            className="revision-id"
-            title={row.revisionId}
-          >
-            {row.revisionId}
-          </code>
+          {row.revisionId === row.id ? null : (
+            <code
+              className="revision-id"
+              title={row.revisionId}
+            >
+              {row.revisionId}
+            </code>
+          )}
         </td>
         <td>
           <div className="staging-table__holiday">
@@ -1050,9 +1059,9 @@ function StagingRowEditor({
                   value={revisionId}
                 />
                 <small>
-                  Keep this system ID for a new holiday. To revise
-                  an existing published row, paste its Published
-                  Lineage Revision ID here.
+                  Leave this blank for a new holiday. To revise an
+                  existing published holiday, copy its occurrence ID
+                  from Published lineage and paste it here.
                 </small>
               </label>
 
@@ -1139,7 +1148,6 @@ function StagingRowEditor({
                   className="ati-btn ati-btn--compact"
                   disabled={
                     busyKey === `correct-${row.id}` ||
-                    revisionId.trim().length === 0 ||
                     !holidayName.trim() ||
                     !startDate ||
                     !endDate ||
@@ -1383,6 +1391,12 @@ function approvalBadge(status: ApprovalView["status"]): string {
   }
 
   return "ati-badge ati-badge--warning";
+}
+
+function revisionInputValue(
+  row: Pick<ReviewRow, "id" | "revisionId">,
+): string {
+  return row.revisionId === row.id ? "" : row.revisionId;
 }
 
 function formatShortDate(value: string): string {

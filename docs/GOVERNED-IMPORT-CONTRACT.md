@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Implemented ingestion baseline |
-| Version | 1.8-draft |
+| Version | 1.8.1-draft |
 | Date | 2026-08-17 |
 | Schema name | `ati-public-holiday-import` |
 | Legacy schema version | `legacy-1.0` |
@@ -117,8 +117,9 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 - Operator/Administrator correction writes only `normalizedData`, editor identity, and edit timestamp
 - Governed editable fields are Revision ID, canonical region codes, holiday name, start date, end date, source reference, and notes
 - Revision ID is application-owned staging state, never workbook authority
-- A new staging row starts with `revisionId = import_rows.id`
-- To revise a published row, the operator replaces Revision ID with the target `holiday_occurrences.id`
+- The operator-facing Revision ID field is empty by default for a new holiday
+- Internally, a new staging row uses `revisionId = import_rows.id` as a sentinel so existing publication and idempotency invariants remain unchanged; that sentinel is not prefilled or shown as a revision target in the UI
+- To revise a published row, the operator copies the target `holiday_occurrences.id` from Published lineage and enters it as Revision ID
 - Revision targets must exist, must not already be superseded, and must not have crossed the notification cancellation boundary
 - Region correction accepts active canonical region codes only; free-form aliases are not persisted as normalized authority
 - Exclusion requires an explicit reason and changes the row to `EXCLUDED`
@@ -162,7 +163,7 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 - Publication requires a frozen batch with an `APPROVED` maker-checker request whose SHA-256 content hash still matches current staging and validation evidence
 - Only `VALID` rows publish; `EXCLUDED` rows remain source evidence but never create canonical holiday data
 - Each valid source row creates one new `holiday_occurrences` record linked by immutable `sourceImportRowId` and `sourceImportBatchId`
-- First publication uses `holiday_occurrences.id = import_rows.id`; that UUID is also the staging row's initial Revision ID
+- First publication uses `holiday_occurrences.id = import_rows.id`; Published lineage exposes that occurrence ID with an explicit copy action for future governed revision
 - When Revision ID points to another current published occurrence, publication creates a new occurrence, sets `supersedesOccurrenceId`, and marks the old occurrence `supersededAt`
 - A superseded occurrence remains historical and is never overwritten
 - Publication rechecks revision eligibility inside the serializable transaction before changing canonical state
