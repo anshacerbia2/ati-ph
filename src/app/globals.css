@@ -2043,3 +2043,228 @@ tbody tr:hover { background: var(--ati-gray-50); }
   width: fit-content;
   flex: 0 0 auto;
 }
+
+
+/* BEGIN phase2b-client-routing */
+.client-routing-admin {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.client-routing-admin__header,
+.client-routing-card > summary,
+.client-team-card > summary,
+.client-subscription-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.client-routing-admin__header h2,
+.client-routing-section h3 {
+  margin: 0;
+}
+
+.client-routing-admin__header p:last-child,
+.client-routing-section__heading p {
+  margin: 0.35rem 0 0;
+  color: var(--text-muted);
+}
+
+.client-routing-create,
+.client-routing-create-row,
+.client-routing-inline-form,
+.client-subscription-create,
+.client-subscription-controls,
+.client-recipient-add {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.client-routing-create label,
+.client-routing-inline-form label,
+.client-subscription-create label,
+.client-subscription-controls label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.client-routing-create input,
+.client-routing-create-row input,
+.client-routing-inline-form input,
+.client-routing-stack-form input,
+.client-subscription-create input,
+.client-subscription-create select,
+.client-subscription-controls input,
+.client-recipient-add select,
+.client-routing-mini-editor input {
+  min-height: 2.5rem;
+}
+
+.client-routing-list,
+.client-team-list,
+.client-subscription-list,
+.client-contact-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.client-routing-card,
+.client-team-card,
+.client-subscription-card {
+  border: 1px solid var(--ati-blue-100);
+  border-radius: 0.85rem;
+  background: transparent;
+}
+
+.client-routing-card--inactive,
+.client-team-card--inactive,
+.client-subscription-card--inactive,
+.client-contact-row--inactive {
+  opacity: 0.72;
+}
+
+.client-routing-card > summary,
+.client-team-card > summary {
+  cursor: pointer;
+  padding: 1rem;
+  list-style: none;
+}
+
+.client-routing-card > summary::-webkit-details-marker,
+.client-team-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.client-routing-card > summary span:first-child,
+.client-team-card > summary span:first-child,
+.client-subscription-card__heading > div {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.client-routing-card > summary small,
+.client-team-card > summary small,
+.client-subscription-card__heading span,
+.client-contact-row span {
+  color: var(--text-muted);
+}
+
+.client-routing-card__body,
+.client-team-card__body {
+  display: grid;
+  gap: 1rem;
+  padding: 0 1rem 1rem;
+}
+
+.client-routing-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+  gap: 1rem;
+}
+
+.client-routing-section {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--ati-blue-100);
+  border-radius: 0.75rem;
+}
+
+.client-routing-stack-form,
+.client-routing-mini-editor {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.client-contact-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--ati-blue-100);
+}
+
+.client-contact-row > div:first-child {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.client-contact-row details summary {
+  cursor: pointer;
+}
+
+.client-routing-mini-editor {
+  margin-top: 0.5rem;
+  min-width: 16rem;
+}
+
+.client-team-card__body {
+  border-top: 1px solid var(--ati-blue-100);
+  padding-top: 1rem;
+}
+
+.client-subscription-card {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.9rem;
+}
+
+.client-recipient-block {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ati-blue-100);
+}
+
+.client-recipient-list {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.client-recipient-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--ati-blue-100);
+  border-radius: 999px;
+  background: var(--ati-blue-50);
+}
+
+.client-recipient-chip--inactive {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.client-recipient-chip button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.client-routing-empty {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .client-routing-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .client-routing-admin__header,
+  .client-routing-card > summary,
+  .client-team-card > summary,
+  .client-subscription-card__heading {
+    align-items: stretch;
+  }
+}
+/* END phase2b-client-routing */

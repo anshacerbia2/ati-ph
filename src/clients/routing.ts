@@ -68,6 +68,36 @@ export function isSubscriptionEffectiveOn(
   return true;
 }
 
+
+export function effectiveWindowsOverlap(
+  left: {
+    effectiveFrom: Date | string | null;
+    effectiveTo: Date | string | null;
+  },
+  right: {
+    effectiveFrom: Date | string | null;
+    effectiveTo: Date | string | null;
+  },
+): boolean {
+  const leftFrom = toDateKey(left.effectiveFrom);
+  const leftTo = toDateKey(left.effectiveTo);
+  const rightFrom = toDateKey(right.effectiveFrom);
+  const rightTo = toDateKey(right.effectiveTo);
+
+  if (left.effectiveFrom !== null && !leftFrom) return true;
+  if (left.effectiveTo !== null && !leftTo) return true;
+  if (right.effectiveFrom !== null && !rightFrom) return true;
+  if (right.effectiveTo !== null && !rightTo) return true;
+
+  if (leftFrom && leftTo && leftFrom > leftTo) return true;
+  if (rightFrom && rightTo && rightFrom > rightTo) return true;
+
+  if (leftTo && rightFrom && leftTo < rightFrom) return false;
+  if (rightTo && leftFrom && rightTo < leftFrom) return false;
+
+  return true;
+}
+
 function normalizeHumanKey(value: string): string {
   return value
     .trim()

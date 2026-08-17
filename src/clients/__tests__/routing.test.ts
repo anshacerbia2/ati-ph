@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  effectiveWindowsOverlap,
   isSubscriptionEffectiveOn,
   normalizeClientName,
   normalizeContactEmail,
@@ -88,5 +89,49 @@ describe("client routing foundation", () => {
         "2027-06-01",
       ),
     ).toBe(false);
+  });
+
+
+  it("detects inclusive effective-window overlap", () => {
+    expect(
+      effectiveWindowsOverlap(
+        { effectiveFrom: "2027-01-01", effectiveTo: "2027-06-30" },
+        { effectiveFrom: "2027-06-30", effectiveTo: "2027-12-31" },
+      ),
+    ).toBe(true);
+
+    expect(
+      effectiveWindowsOverlap(
+        { effectiveFrom: "2027-01-01", effectiveTo: "2027-06-29" },
+        { effectiveFrom: "2027-06-30", effectiveTo: "2027-12-31" },
+      ),
+    ).toBe(false);
+  });
+
+  it("treats open-ended windows as unbounded", () => {
+    expect(
+      effectiveWindowsOverlap(
+        { effectiveFrom: null, effectiveTo: "2027-06-30" },
+        { effectiveFrom: "2027-06-01", effectiveTo: null },
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when overlap receives an invalid boundary", () => {
+    expect(
+      effectiveWindowsOverlap(
+        { effectiveFrom: "invalid", effectiveTo: null },
+        { effectiveFrom: "2027-01-01", effectiveTo: "2027-12-31" },
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when overlap receives an inverted window", () => {
+    expect(
+      effectiveWindowsOverlap(
+        { effectiveFrom: "2027-12-31", effectiveTo: "2027-01-01" },
+        { effectiveFrom: "2027-06-01", effectiveTo: "2027-06-30" },
+      ),
+    ).toBe(true);
   });
 });

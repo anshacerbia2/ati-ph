@@ -141,7 +141,6 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
   {
     code: "administration",
     label: "Administration",
-    requiredPermission: PERMISSIONS.CALENDAR_REGION_READ,
     sortOrder: 30,
   },
   {
@@ -151,5 +150,13 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
     parentCode: "administration",
     requiredPermission: PERMISSIONS.CALENDAR_REGION_READ,
     sortOrder: 10,
+  },
+  {
+    code: "client_routing",
+    label: "Client Routing",
+    path: "/admin/client-routing",
+    parentCode: "administration",
+    requiredPermission: PERMISSIONS.CLIENT_READ,
+    sortOrder: 20,
   },
 ];
