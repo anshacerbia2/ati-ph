@@ -4,6 +4,8 @@ export const PERMISSIONS = {
   IMPORT_READ: "import.read",
   IMPORT_CREATE: "import.create",
   IMPORT_APPROVE: "import.approve",
+  CLIENT_READ: "client.read",
+  CLIENT_MANAGE: "client.manage",
 } as const;
 
 export type PermissionCode =
@@ -60,6 +62,18 @@ export const SYSTEM_PERMISSIONS = [
     name: "Approve imports",
     description: "Approve governed imports for canonical publication",
   },
+  {
+    code: PERMISSIONS.CLIENT_READ,
+    name: "Read client routing",
+    description:
+      "View clients, service teams, contacts, subscriptions, and recipients",
+  },
+  {
+    code: PERMISSIONS.CLIENT_MANAGE,
+    name: "Manage client routing",
+    description:
+      "Manage clients, service teams, contacts, subscriptions, and recipients",
+  },
 ] as const;
 
 export const ROLE_PERMISSION_CODES: Record<
@@ -72,20 +86,25 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.IMPORT_CREATE,
     PERMISSIONS.IMPORT_APPROVE,
+    PERMISSIONS.CLIENT_READ,
+    PERMISSIONS.CLIENT_MANAGE,
   ],
   OPERATOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.IMPORT_CREATE,
+    PERMISSIONS.CLIENT_READ,
   ],
   APPROVER: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.IMPORT_APPROVE,
+    PERMISSIONS.CLIENT_READ,
   ],
   AUDITOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
+    PERMISSIONS.CLIENT_READ,
   ],
 };
 

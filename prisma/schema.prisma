@@ -51,23 +51,23 @@ enum ApprovalStatus {
 }
 
 model User {
-  id                 String                  @id @default(uuid()) @db.Uuid
-  externalSubject    String                  @unique @db.VarChar(191)
-  email              String                  @unique @db.VarChar(320)
-  displayName        String?                 @db.VarChar(255)
-  isActive           Boolean                 @default(true)
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
-  sessions           AuthSession[]
-  auditEvents        AuditEvent[]
-  artifacts          FileArtifact[]          @relation("ArtifactCreator")
-  imports            ImportBatch[]           @relation("ImportUploader")
-  editedRows         ImportRow[]             @relation("ImportRowEditor")
-  acknowledgedIssues ImportValidationIssue[] @relation("IssueAcknowledger")
-  roleAssignments    UserRoleAssignment[]
-  requestedApprovals  ApprovalRequest[]   @relation("ApprovalRequester")
-  decidedApprovals    ApprovalRequest[]   @relation("ApprovalDecider")
-  publishedOccurrences HolidayOccurrence[] @relation("OccurrencePublisher")
+  id                   String                  @id @default(uuid()) @db.Uuid
+  externalSubject      String                  @unique @db.VarChar(191)
+  email                String                  @unique @db.VarChar(320)
+  displayName          String?                 @db.VarChar(255)
+  isActive             Boolean                 @default(true)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  sessions             AuthSession[]
+  auditEvents          AuditEvent[]
+  artifacts            FileArtifact[]          @relation("ArtifactCreator")
+  imports              ImportBatch[]           @relation("ImportUploader")
+  editedRows           ImportRow[]             @relation("ImportRowEditor")
+  acknowledgedIssues   ImportValidationIssue[] @relation("IssueAcknowledger")
+  roleAssignments      UserRoleAssignment[]
+  requestedApprovals   ApprovalRequest[]       @relation("ApprovalRequester")
+  decidedApprovals     ApprovalRequest[]       @relation("ApprovalDecider")
+  publishedOccurrences HolidayOccurrence[]     @relation("OccurrencePublisher")
 
   @@index([isActive])
   @@map("users")
@@ -94,33 +94,33 @@ model FileArtifact {
 }
 
 model ImportBatch {
-  id            String                  @id @default(uuid()) @db.Uuid
-  batchNumber   String                  @unique @db.VarChar(50)
-  sourceName    String                  @db.VarChar(200)
-  schemaName    String                  @db.VarChar(100)
-  schemaVersion String                  @db.VarChar(30)
-  rawArtifactId String                  @unique @db.Uuid
-  fileSha256    String                  @db.Char(64)
-  columnMapping Json
-  status        ImportBatchStatus       @default(UPLOADED)
-  totalRows     Int                     @default(0)
-  validRows     Int                     @default(0)
-  invalidRows   Int                     @default(0)
-  warningCount  Int                     @default(0)
-  uploadedById  String                  @db.Uuid
-  uploadedAt    DateTime                @default(now())
-  submittedAt   DateTime?
-  publishedAt   DateTime?
+  id                    String                  @id @default(uuid()) @db.Uuid
+  batchNumber           String                  @unique @db.VarChar(50)
+  sourceName            String                  @db.VarChar(200)
+  schemaName            String                  @db.VarChar(100)
+  schemaVersion         String                  @db.VarChar(30)
+  rawArtifactId         String                  @unique @db.Uuid
+  fileSha256            String                  @db.Char(64)
+  columnMapping         Json
+  status                ImportBatchStatus       @default(UPLOADED)
+  totalRows             Int                     @default(0)
+  validRows             Int                     @default(0)
+  invalidRows           Int                     @default(0)
+  warningCount          Int                     @default(0)
+  uploadedById          String                  @db.Uuid
+  uploadedAt            DateTime                @default(now())
+  submittedAt           DateTime?
+  publishedAt           DateTime?
   failureReason         String?                 @db.Text
-  clientPreviewSha256    String?                 @db.Char(64)
-  businessContentSha256 String?                  @db.Char(64)
+  clientPreviewSha256   String?                 @db.Char(64)
+  businessContentSha256 String?                 @db.Char(64)
   verificationStartedAt DateTime?
-  verifiedAt             DateTime?
-  rawArtifact            FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
-  uploadedBy    User                    @relation("ImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
-  rows                 ImportRow[]
-  issues               ImportValidationIssue[]
-  publishedOccurrences HolidayOccurrence[] @relation("PublishedBatchOccurrences")
+  verifiedAt            DateTime?
+  rawArtifact           FileArtifact            @relation(fields: [rawArtifactId], references: [id], onDelete: Restrict)
+  uploadedBy            User                    @relation("ImportUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  rows                  ImportRow[]
+  issues                ImportValidationIssue[]
+  publishedOccurrences  HolidayOccurrence[]     @relation("PublishedBatchOccurrences")
 
   @@index([fileSha256])
   @@index([businessContentSha256])
@@ -146,7 +146,7 @@ model ImportRow {
   importBatch         ImportBatch             @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
   editedBy            User?                   @relation("ImportRowEditor", fields: [editedById], references: [id], onDelete: SetNull)
   issues              ImportValidationIssue[]
-  publishedOccurrence  HolidayOccurrence? @relation("SourceImportRowOccurrence")
+  publishedOccurrence HolidayOccurrence?      @relation("SourceImportRowOccurrence")
 
   @@unique([importBatchId, sourceSheet, sourceRowNumber])
   @@index([importBatchId, status])
@@ -187,26 +187,26 @@ model HolidayDefinition {
 }
 
 model HolidayOccurrence {
-  id                  String                    @id @default(uuid()) @db.Uuid
-  holidayDefinitionId String                    @db.Uuid
-  sourceImportRowId   String                    @unique @db.Uuid
-  sourceImportBatchId String                    @db.Uuid
-  startDate           DateTime                  @db.Date
-  endDate             DateTime                  @db.Date
-  calendarYear        Int
+  id                      String                    @id @default(uuid()) @db.Uuid
+  holidayDefinitionId     String                    @db.Uuid
+  sourceImportRowId       String                    @unique @db.Uuid
+  sourceImportBatchId     String                    @db.Uuid
+  startDate               DateTime                  @db.Date
+  endDate                 DateTime                  @db.Date
+  calendarYear            Int
   publishedById           String                    @db.Uuid
   publishedAt             DateTime                  @default(now())
   supersedesOccurrenceId  String?                   @unique @db.Uuid
   supersededAt            DateTime?
   notificationCommittedAt DateTime?
   definition              HolidayDefinition         @relation(fields: [holidayDefinitionId], references: [id], onDelete: Restrict)
-  sourceImportRow     ImportRow                 @relation("SourceImportRowOccurrence", fields: [sourceImportRowId], references: [id], onDelete: Restrict)
-  sourceImportBatch   ImportBatch               @relation("PublishedBatchOccurrences", fields: [sourceImportBatchId], references: [id], onDelete: Restrict)
-  publishedBy          User                      @relation("OccurrencePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
-  supersedesOccurrence HolidayOccurrence?         @relation("HolidayOccurrenceRevision", fields: [supersedesOccurrenceId], references: [id], onDelete: Restrict)
-  supersededBy         HolidayOccurrence?          @relation("HolidayOccurrenceRevision")
-  regions              HolidayOccurrenceRegion[]
-  dates                HolidayOccurrenceDate[]
+  sourceImportRow         ImportRow                 @relation("SourceImportRowOccurrence", fields: [sourceImportRowId], references: [id], onDelete: Restrict)
+  sourceImportBatch       ImportBatch               @relation("PublishedBatchOccurrences", fields: [sourceImportBatchId], references: [id], onDelete: Restrict)
+  publishedBy             User                      @relation("OccurrencePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  supersedesOccurrence    HolidayOccurrence?        @relation("HolidayOccurrenceRevision", fields: [supersedesOccurrenceId], references: [id], onDelete: Restrict)
+  supersededBy            HolidayOccurrence?        @relation("HolidayOccurrenceRevision")
+  regions                 HolidayOccurrenceRegion[]
+  dates                   HolidayOccurrenceDate[]
 
   @@index([sourceImportBatchId, publishedAt])
   @@index([calendarYear, startDate])
@@ -395,15 +395,96 @@ model Menu {
   @@map("menus")
 }
 
+model Client {
+  id             String        @id @default(uuid()) @db.Uuid
+  name           String        @db.VarChar(200)
+  normalizedName String        @unique @db.VarChar(200)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  serviceTeams   ServiceTeam[]
+  contacts       Contact[]
+
+  @@index([isActive, name])
+  @@map("clients")
+}
+
+model ServiceTeam {
+  id             String               @id @default(uuid()) @db.Uuid
+  clientId       String               @db.Uuid
+  name           String               @db.VarChar(200)
+  normalizedName String               @db.VarChar(200)
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  client         Client               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  subscriptions  ClientSubscription[]
+
+  @@unique([clientId, normalizedName])
+  @@index([clientId, isActive, name])
+  @@map("service_teams")
+}
+
+model Contact {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  clientId             String                  @db.Uuid
+  displayName          String?                 @db.VarChar(200)
+  email                String                  @db.VarChar(320)
+  normalizedEmail      String                  @db.VarChar(320)
+  isActive             Boolean                 @default(true)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  client               Client                  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  recipientAssignments SubscriptionRecipient[]
+
+  @@unique([clientId, normalizedEmail])
+  @@index([clientId, isActive])
+  @@map("contacts")
+}
+
+model ClientSubscription {
+  id               String                  @id @default(uuid()) @db.Uuid
+  serviceTeamId    String                  @db.Uuid
+  calendarRegionId String                  @db.Uuid
+  effectiveFrom    DateTime?               @db.Date
+  effectiveTo      DateTime?               @db.Date
+  isActive         Boolean                 @default(true)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  serviceTeam      ServiceTeam             @relation(fields: [serviceTeamId], references: [id], onDelete: Restrict)
+  calendarRegion   CalendarRegion          @relation(fields: [calendarRegionId], references: [id], onDelete: Restrict)
+  recipients       SubscriptionRecipient[]
+
+  @@index([serviceTeamId, calendarRegionId])
+  @@index([calendarRegionId, isActive])
+  @@index([serviceTeamId, isActive])
+  @@map("client_subscriptions")
+}
+
+model SubscriptionRecipient {
+  subscriptionId String             @db.Uuid
+  contactId      String             @db.Uuid
+  isActive       Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  contact        Contact            @relation(fields: [contactId], references: [id], onDelete: Restrict)
+
+  @@id([subscriptionId, contactId])
+  @@index([contactId, isActive])
+  @@map("subscription_recipients")
+}
+
 model CalendarRegion {
-  id          String                @id @default(uuid()) @db.Uuid
-  code        String                @unique @db.VarChar(16)
-  displayName String                @db.VarChar(120)
-  isActive    Boolean               @default(true)
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  id                  String                    @id @default(uuid()) @db.Uuid
+  code                String                    @unique @db.VarChar(16)
+  displayName         String                    @db.VarChar(120)
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
   aliases             CalendarRegionAlias[]
-  holidayOccurrences HolidayOccurrenceRegion[]
+  holidayOccurrences  HolidayOccurrenceRegion[]
+  clientSubscriptions ClientSubscription[]
 
   @@index([isActive, code])
   @@map("calendar_regions")
