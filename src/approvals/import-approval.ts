@@ -6,6 +6,7 @@ export type ApprovalHashRow = {
   id: string;
   sourceSheet: string;
   sourceRowNumber: number;
+  revisionId: string;
   status: "VALID" | "INVALID" | "EXCLUDED";
   normalizedData: NormalizedHolidayRow;
   excludedReason: string | null;
@@ -32,6 +33,7 @@ export function computeImportApprovalContentHash(
       .map((row) => ({
         sourceSheet: row.sourceSheet,
         sourceRowNumber: row.sourceRowNumber,
+        revisionId: row.revisionId,
         status: row.status,
         normalizedData: row.normalizedData,
         excludedReason: row.excludedReason,

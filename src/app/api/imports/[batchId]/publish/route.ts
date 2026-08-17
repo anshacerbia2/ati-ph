@@ -10,6 +10,10 @@ import {
   expandHolidayDateRange,
   toDatabaseDate,
 } from "@/holiday/publication";
+import {
+  collectRevisionTargetIds,
+  validateRevisionTargets,
+} from "@/holiday/revision";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
 import { db } from "@/lib/db";
 
@@ -25,6 +29,29 @@ class PublicationError extends Error {
     super(message);
     this.name = "PublicationError";
   }
+}
+
+async function lockRevisionTargets(
+  transaction: Prisma.TransactionClient,
+  targetIds: readonly string[],
+): Promise<void> {
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  const ids = targetIds.map(
+    (id) => Prisma.sql`${id}::uuid`,
+  );
+
+  await transaction.$queryRaw(
+    Prisma.sql`
+      SELECT "id"
+      FROM "holiday_occurrences"
+      WHERE "id" IN (${Prisma.join(ids)})
+      ORDER BY "id"
+      FOR UPDATE
+    `,
+  );
 }
 
 export async function POST(
@@ -61,6 +88,7 @@ export async function POST(
                 id: true,
                 sourceSheet: true,
                 sourceRowNumber: true,
+                revisionId: true,
                 status: true,
                 normalizedData: true,
                 excludedReason: true,
@@ -211,6 +239,32 @@ export async function POST(
             row.normalizedData as unknown as NormalizedHolidayRow,
         }));
 
+        const revisionTargets =
+          collectRevisionTargetIds(normalizedRows);
+        if (!revisionTargets.ok) {
+          throw new PublicationError(
+            revisionTargets.reason,
+            409,
+          );
+        }
+
+        await lockRevisionTargets(
+          transaction,
+          revisionTargets.targetIds,
+        );
+
+        const revisionValidation =
+          await validateRevisionTargets(
+            transaction,
+            normalizedRows,
+          );
+        if (!revisionValidation.ok) {
+          throw new PublicationError(
+            revisionValidation.reason,
+            409,
+          );
+        }
+
         const requiredRegionCodes = [
           ...new Set(
             normalizedRows.flatMap(
@@ -251,6 +305,9 @@ export async function POST(
         let occurrenceCount = 0;
         let regionCount = 0;
         let dateCount = 0;
+        let revisionCount = 0;
+        const publishedOccurrenceIds: string[] = [];
+        const supersededOccurrenceIds: string[] = [];
 
         for (const row of normalizedRows) {
           const value = row.normalizedData;
@@ -284,9 +341,34 @@ export async function POST(
               select: { id: true },
             });
 
+          const revisesExisting =
+            row.revisionId !== row.id;
+
+          if (revisesExisting) {
+            const superseded =
+              await transaction.holidayOccurrence.updateMany({
+                where: {
+                  id: row.revisionId,
+                  supersededAt: null,
+                  notificationCommittedAt: null,
+                },
+                data: {
+                  supersededAt: now,
+                },
+              });
+
+            if (superseded.count !== 1) {
+              throw new PublicationError(
+                `Revision ID ${row.revisionId} became ineligible before publication.`,
+                409,
+              );
+            }
+          }
+
           const occurrence =
             await transaction.holidayOccurrence.create({
               data: {
+                id: row.id,
                 holidayDefinitionId: definition.id,
                 sourceImportRowId: row.id,
                 sourceImportBatchId: batch.id,
@@ -297,9 +379,21 @@ export async function POST(
                 calendarYear: value.calendarYear,
                 publishedById: access.session.user.id,
                 publishedAt: now,
+                supersedesOccurrenceId:
+                  revisesExisting
+                    ? row.revisionId
+                    : null,
               },
               select: { id: true },
             });
+
+          publishedOccurrenceIds.push(occurrence.id);
+          if (revisesExisting) {
+            revisionCount += 1;
+            supersededOccurrenceIds.push(
+              row.revisionId,
+            );
+          }
 
           const relationData = value.regionCodes.map(
             (code) => ({
@@ -349,6 +443,9 @@ export async function POST(
               occurrenceCount,
               regionCount,
               dateCount,
+              revisionCount,
+              publishedOccurrenceIds,
+              supersededOccurrenceIds,
             },
           },
         });
@@ -366,6 +463,9 @@ export async function POST(
               occurrenceCount,
               regionCount,
               dateCount,
+              revisionCount,
+              publishedOccurrenceIds,
+              supersededOccurrenceIds,
               occurredAt: now.toISOString(),
             },
           },
@@ -377,6 +477,7 @@ export async function POST(
           occurrenceCount,
           regionCount,
           dateCount,
+          revisionCount,
         };
       },
       {

@@ -374,7 +374,7 @@ export async function POST(request: Request): Promise<Response> {
           importBatchId: batchId,
           sourceSheet: row.sourceSheet,
           sourceRowNumber: row.sourceRowNumber,
-          sourceRowId: row.sourceRowId,
+          revisionId: rowIds.get(row.sourceRowNumber)!,
           rawData: asJson(row.rawData),
           normalizedData: asJson(row.normalizedData),
           status: row.status,

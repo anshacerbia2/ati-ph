@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Implemented ingestion baseline |
-| Version | 1.7-draft |
+| Version | 1.8-draft |
 | Date | 2026-08-17 |
 | Schema name | `ati-public-holiday-import` |
 | Legacy schema version | `legacy-1.0` |
@@ -41,7 +41,7 @@ Column order is ignored. Header comparison is case-insensitive and punctuation-i
 | `sourceReference` | `Source Reference` | No |
 | `notes` | `Remarks`, `Notes` | No |
 
-Unknown columns remain in `rawData`. More than one source column mapping to the same canonical field is an error. Missing required headers make the batch invalid.
+Unknown columns remain in `rawData`. `Source Row ID` is no longer canonical workbook input; if an older workbook still contains that column it is retained only in immutable raw evidence and is ignored by normalization. More than one source column mapping to the same canonical field is an error. Missing required headers make the batch invalid.
 
 ## Normalization rules
 
@@ -115,7 +115,11 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 
 - Raw workbook bytes and `rawData` remain immutable evidence
 - Operator/Administrator correction writes only `normalizedData`, editor identity, and edit timestamp
-- Governed editable fields are canonical region codes, holiday name, start date, end date, source reference, and notes
+- Governed editable fields are Revision ID, canonical region codes, holiday name, start date, end date, source reference, and notes
+- Revision ID is application-owned staging state, never workbook authority
+- A new staging row starts with `revisionId = import_rows.id`
+- To revise a published row, the operator replaces Revision ID with the target `holiday_occurrences.id`
+- Revision targets must exist, must not already be superseded, and must not have crossed the notification cancellation boundary
 - Region correction accepts active canonical region codes only; free-form aliases are not persisted as normalized authority
 - Exclusion requires an explicit reason and changes the row to `EXCLUDED`
 - Restoration removes the exclusion reason and re-enters deterministic validation
@@ -157,7 +161,12 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 
 - Publication requires a frozen batch with an `APPROVED` maker-checker request whose SHA-256 content hash still matches current staging and validation evidence
 - Only `VALID` rows publish; `EXCLUDED` rows remain source evidence but never create canonical holiday data
-- Each valid source row creates one `holiday_occurrences` record linked by immutable `sourceImportRowId` and `sourceImportBatchId`
+- Each valid source row creates one new `holiday_occurrences` record linked by immutable `sourceImportRowId` and `sourceImportBatchId`
+- First publication uses `holiday_occurrences.id = import_rows.id`; that UUID is also the staging row's initial Revision ID
+- When Revision ID points to another current published occurrence, publication creates a new occurrence, sets `supersedesOccurrenceId`, and marks the old occurrence `supersededAt`
+- A superseded occurrence remains historical and is never overwritten
+- Publication rechecks revision eligibility inside the serializable transaction before changing canonical state
+- `notificationCommittedAt` is the fail-closed cancellation boundary for future delivery integration; once populated, normal revision is blocked and a separate correction-after-send workflow is required
 - The normalized holiday identity upserts a `holiday_definitions` record without mutating existing canonical history
 - Every normalized canonical region creates one `holiday_occurrence_regions` relation; inactive or missing canonical regions fail publication closed
 - Start/end periods expand inclusively into `holiday_occurrence_dates`
@@ -278,7 +287,7 @@ flowchart TD
 | Duplicate preflight | None | `fileSha256`, server-parsed canonical `Holiday_Master` business identity, and blocking checks; duplicates stop before persistence |
 | Raw evidence | Artifact storage + `file_artifacts` | Original accepted XLSX bytes in artifact storage; filename, MIME type, size, SHA-256, storage key, retention class, creator, timestamp in DB |
 | Import root | `import_batches` | One row per accepted unique submission: batch number, source/schema, raw artifact reference, `fileSha256`, `businessContentSha256`, `clientPreviewSha256`, status, row aggregates, uploader, verification/publication timestamps, failure reason |
-| Staging | `import_rows` | One row per source row: raw data, normalized data, row status, exclusion state, edit actor and timestamps |
+| Staging | `import_rows` | One row per source row: system-owned Revision ID, raw data, normalized data, row status, exclusion state, edit actor and timestamps |
 | Validation | `import_validation_issues` | ERROR/WARNING/INFO, code, field, rejected value, message, acknowledgement actor and timestamp |
 | Reference resolution | `calendar_regions`, `calendar_region_aliases` | Canonical region registry used during normalization and validation |
 | Approval | `approval_requests` | Frozen approval content hash, requester, approver, decision status, timestamps, reason |

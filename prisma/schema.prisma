@@ -134,7 +134,7 @@ model ImportRow {
   importBatchId       String                  @db.Uuid
   sourceSheet         String                  @db.VarChar(150)
   sourceRowNumber     Int
-  sourceRowId         String?                 @db.VarChar(200)
+  revisionId          String                  @db.Uuid
   rawData             Json
   normalizedData      Json
   status              ImportRowStatus
@@ -150,6 +150,7 @@ model ImportRow {
 
   @@unique([importBatchId, sourceSheet, sourceRowNumber])
   @@index([importBatchId, status])
+  @@index([revisionId])
   @@map("import_rows")
 }
 
@@ -193,17 +194,24 @@ model HolidayOccurrence {
   startDate           DateTime                  @db.Date
   endDate             DateTime                  @db.Date
   calendarYear        Int
-  publishedById       String                    @db.Uuid
-  publishedAt         DateTime                  @default(now())
-  definition          HolidayDefinition         @relation(fields: [holidayDefinitionId], references: [id], onDelete: Restrict)
+  publishedById           String                    @db.Uuid
+  publishedAt             DateTime                  @default(now())
+  supersedesOccurrenceId  String?                   @unique @db.Uuid
+  supersededAt            DateTime?
+  notificationCommittedAt DateTime?
+  definition              HolidayDefinition         @relation(fields: [holidayDefinitionId], references: [id], onDelete: Restrict)
   sourceImportRow     ImportRow                 @relation("SourceImportRowOccurrence", fields: [sourceImportRowId], references: [id], onDelete: Restrict)
   sourceImportBatch   ImportBatch               @relation("PublishedBatchOccurrences", fields: [sourceImportBatchId], references: [id], onDelete: Restrict)
-  publishedBy         User                      @relation("OccurrencePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
-  regions             HolidayOccurrenceRegion[]
-  dates               HolidayOccurrenceDate[]
+  publishedBy          User                      @relation("OccurrencePublisher", fields: [publishedById], references: [id], onDelete: Restrict)
+  supersedesOccurrence HolidayOccurrence?         @relation("HolidayOccurrenceRevision", fields: [supersedesOccurrenceId], references: [id], onDelete: Restrict)
+  supersededBy         HolidayOccurrence?          @relation("HolidayOccurrenceRevision")
+  regions              HolidayOccurrenceRegion[]
+  dates                HolidayOccurrenceDate[]
 
   @@index([sourceImportBatchId, publishedAt])
   @@index([calendarYear, startDate])
+  @@index([supersededAt, startDate])
+  @@index([notificationCommittedAt])
   @@map("holiday_occurrences")
 }
 

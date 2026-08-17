@@ -211,7 +211,6 @@ async function verifyOnePendingImport(): Promise<boolean> {
         await transaction.importRow.update({
           where: { id: rowIdByNumber.get(row.sourceRowNumber)! },
           data: {
-            sourceRowId: row.sourceRowId,
             rawData: asJson(row.rawData),
             normalizedData: asJson(row.normalizedData),
             status: row.status,

@@ -195,6 +195,7 @@ export default async function ImportBatchPage({
         id: true,
         sourceSheet: true,
         sourceRowNumber: true,
+        revisionId: true,
         status: true,
         normalizedData: true,
         excludedReason: true,
@@ -252,6 +253,9 @@ export default async function ImportBatchPage({
         endDate: true,
         calendarYear: true,
         publishedAt: true,
+        supersedesOccurrenceId: true,
+        supersededAt: true,
+        notificationCommittedAt: true,
         definition: {
           select: {
             canonicalName: true,
@@ -366,6 +370,13 @@ export default async function ImportBatchPage({
               calendarYear: occurrence.calendarYear,
               publishedAt:
                 occurrence.publishedAt.toISOString(),
+              supersedesOccurrenceId:
+                occurrence.supersedesOccurrenceId,
+              supersededAt:
+                occurrence.supersededAt?.toISOString() ?? null,
+              notificationCommittedAt:
+                occurrence.notificationCommittedAt?.toISOString() ??
+                null,
               regionCodes: occurrence.regions.map(
                 (relation) =>
                   relation.calendarRegion.code,

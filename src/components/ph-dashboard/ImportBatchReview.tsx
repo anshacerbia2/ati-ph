@@ -29,6 +29,7 @@ type ReviewRow = {
   id: string;
   sourceSheet: string;
   sourceRowNumber: number;
+  revisionId: string;
   status: "VALID" | "INVALID" | "EXCLUDED";
   normalizedData: NormalizedHolidayRow;
   excludedReason: string | null;
@@ -44,6 +45,9 @@ type PublishedOccurrenceView = {
   endDate: string;
   calendarYear: number;
   publishedAt: string;
+  supersedesOccurrenceId: string | null;
+  supersededAt: string | null;
+  notificationCommittedAt: string | null;
   regionCodes: string[];
   dates: {
     date: string;
@@ -615,6 +619,7 @@ function PublicationLineage({
       <div className="publication-lineage__table-wrap">
         <table className="publication-lineage__table">
           <colgroup>
+            <col className="publication-lineage__col--revision" />
             <col className="publication-lineage__col--holiday" />
             <col className="publication-lineage__col--source" />
             <col className="publication-lineage__col--regions" />
@@ -622,6 +627,7 @@ function PublicationLineage({
           </colgroup>
           <thead>
             <tr>
+              <th scope="col">Revision ID</th>
               <th scope="col">Holiday</th>
               <th scope="col">Source</th>
               <th scope="col">Regions</th>
@@ -632,9 +638,33 @@ function PublicationLineage({
             {batch.publishedOccurrences.map((occurrence) => (
               <tr key={occurrence.id}>
                 <td>
+                  <code
+                    className="revision-id"
+                    title={occurrence.id}
+                  >
+                    {occurrence.id}
+                  </code>
+                </td>
+                <td>
                   <div className="publication-lineage__holiday">
                     <strong>{occurrence.holidayName}</strong>
-                    <span>{occurrence.calendarYear}</span>
+                    <span>
+                      {occurrence.supersededAt
+                        ? "SUPERSEDED"
+                        : occurrence.notificationCommittedAt
+                          ? "PUBLISHED · DELIVERY COMMITTED"
+                          : "PUBLISHED"}
+                      {" · "}
+                      {occurrence.calendarYear}
+                    </span>
+                    {occurrence.supersedesOccurrenceId ? (
+                      <span
+                        title={occurrence.supersedesOccurrenceId}
+                      >
+                        Revises{" "}
+                        {occurrence.supersedesOccurrenceId}
+                      </span>
+                    ) : null}
                   </div>
                 </td>
                 <td>
@@ -734,6 +764,7 @@ function StagingRows({
           <table className="staging-table">
             <colgroup>
               <col className="staging-table__col--source" />
+              <col className="staging-table__col--revision" />
               <col className="staging-table__col--holiday" />
               <col className="staging-table__col--period" />
               <col className="staging-table__col--regions" />
@@ -744,6 +775,7 @@ function StagingRows({
             <thead>
               <tr>
                 <th scope="col">Source row</th>
+                <th scope="col">Revision ID</th>
                 <th scope="col">Holiday</th>
                 <th scope="col">Period</th>
                 <th scope="col">Regions</th>
@@ -798,6 +830,9 @@ function StagingRowEditor({
 }) {
   const [editing, setEditing] = useState(false);
   const [excluding, setExcluding] = useState(false);
+  const [revisionId, setRevisionId] = useState(
+    row.revisionId,
+  );
   const [holidayName, setHolidayName] = useState(
     row.normalizedData.holidayName,
   );
@@ -810,9 +845,6 @@ function StagingRowEditor({
   const [regionCodes, setRegionCodes] = useState<string[]>(
     row.normalizedData.regionCodes,
   );
-  const [sourceReference, setSourceReference] = useState(
-    row.normalizedData.sourceReference ?? "",
-  );
   const [notes, setNotes] = useState(
     row.normalizedData.notes ?? "",
   );
@@ -824,13 +856,11 @@ function StagingRowEditor({
     `/api/imports/${batchId}/rows/${row.id}`;
 
   function resetEditor() {
+    setRevisionId(row.revisionId);
     setHolidayName(row.normalizedData.holidayName);
     setStartDate(row.normalizedData.startDate ?? "");
     setEndDate(row.normalizedData.endDate ?? "");
     setRegionCodes(row.normalizedData.regionCodes);
-    setSourceReference(
-      row.normalizedData.sourceReference ?? "",
-    );
     setNotes(row.normalizedData.notes ?? "");
   }
 
@@ -841,11 +871,11 @@ function StagingRowEditor({
       {
         action: "CORRECT",
         correction: {
+          revisionId,
           holidayName,
           regionCodes,
           startDate,
           endDate,
-          sourceReference,
           notes,
         },
       },
@@ -887,15 +917,18 @@ function StagingRowEditor({
           </div>
         </td>
         <td>
+          <code
+            className="revision-id"
+            title={row.revisionId}
+          >
+            {row.revisionId}
+          </code>
+        </td>
+        <td>
           <div className="staging-table__holiday">
             <strong>
               {row.normalizedData.holidayName || "Unnamed holiday"}
             </strong>
-            {row.normalizedData.sourceReference ? (
-              <span title={row.normalizedData.sourceReference}>
-                Ref: {row.normalizedData.sourceReference}
-              </span>
-            ) : null}
           </div>
         </td>
         <td>
@@ -1004,8 +1037,25 @@ function StagingRowEditor({
 
       {editing && canEdit ? (
         <tr className="staging-table__detail-row">
-          <td colSpan={7}>
+          <td colSpan={8}>
             <div className="staging-row-editor">
+              <label className="staging-field staging-field--wide">
+                <span>Revision ID</span>
+                <input
+                  autoComplete="off"
+                  onChange={(event) =>
+                    setRevisionId(event.target.value)
+                  }
+                  spellCheck={false}
+                  value={revisionId}
+                />
+                <small>
+                  Keep this system ID for a new holiday. To revise
+                  an existing published row, paste its Published
+                  Lineage Revision ID here.
+                </small>
+              </label>
+
               <label className="staging-field staging-field--wide">
                 <span>Holiday name</span>
                 <input
@@ -1073,17 +1123,6 @@ function StagingRowEditor({
               </fieldset>
 
               <label className="staging-field staging-field--wide">
-                <span>Source reference</span>
-                <input
-                  maxLength={500}
-                  onChange={(event) =>
-                    setSourceReference(event.target.value)
-                  }
-                  value={sourceReference}
-                />
-              </label>
-
-              <label className="staging-field staging-field--wide">
                 <span>Notes</span>
                 <textarea
                   maxLength={2000}
@@ -1100,6 +1139,7 @@ function StagingRowEditor({
                   className="ati-btn ati-btn--compact"
                   disabled={
                     busyKey === `correct-${row.id}` ||
+                    revisionId.trim().length === 0 ||
                     !holidayName.trim() ||
                     !startDate ||
                     !endDate ||
@@ -1130,7 +1170,7 @@ function StagingRowEditor({
 
       {excluding && canEdit ? (
         <tr className="staging-table__detail-row">
-          <td colSpan={7}>
+          <td colSpan={8}>
             <div className="staging-exclusion">
               <label>
                 <span>Exclusion reason</span>

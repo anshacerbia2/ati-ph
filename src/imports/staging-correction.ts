@@ -8,7 +8,6 @@ export type StagingCorrectionInput = {
   regionCodes: string[];
   startDate: string;
   endDate: string;
-  sourceReference?: string;
   notes?: string;
 };
 
@@ -109,15 +108,6 @@ export function parseStagingCorrection(
     };
   }
 
-  const sourceReference = optionalText(
-    value.sourceReference,
-    500,
-    "sourceReference",
-  );
-  if (!sourceReference.ok) {
-    return sourceReference;
-  }
-
   const notes = optionalText(value.notes, 2_000, "notes");
   if (!notes.ok) {
     return notes;
@@ -133,7 +123,6 @@ export function parseStagingCorrection(
       startDate,
       endDate,
       calendarYear: Number(startDate.slice(0, 4)),
-      sourceReference: sourceReference.value,
       notes: notes.value,
     },
   };

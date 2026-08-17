@@ -17,7 +17,6 @@ export type ImportIssue = {
 };
 
 export type NormalizedHolidayRow = {
-  sourceRowId?: string;
   regionCodes: string[];
   sourceRegions: string[];
   holidayName: string;
@@ -25,14 +24,12 @@ export type NormalizedHolidayRow = {
   startDate?: string;
   endDate?: string;
   calendarYear?: number;
-  sourceReference?: string;
   notes?: string;
 };
 
 export type ParsedImportRow = {
   sourceSheet: string;
   sourceRowNumber: number;
-  sourceRowId?: string;
   rawData: Record<string, unknown>;
   normalizedData: NormalizedHolidayRow;
   status: "VALID" | "INVALID";

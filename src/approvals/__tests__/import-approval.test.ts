@@ -9,6 +9,7 @@ const row = {
   id: "row-1",
   sourceSheet: "Holiday_Master",
   sourceRowNumber: 2,
+  revisionId: "11111111-1111-4111-8111-111111111111",
   status: "VALID" as const,
   normalizedData: {
     sourceRegions: ["Australia"],
@@ -41,6 +42,22 @@ describe("import approval", () => {
             ...row.normalizedData,
             holidayName: "Changed",
           },
+        },
+      ],
+      [],
+    );
+
+    expect(second).not.toBe(first);
+  });
+
+  it("changes the hash when revision identity changes", () => {
+    const first = computeImportApprovalContentHash([row], []);
+    const second = computeImportApprovalContentHash(
+      [
+        {
+          ...row,
+          revisionId:
+            "22222222-2222-4222-8222-222222222222",
         },
       ],
       [],

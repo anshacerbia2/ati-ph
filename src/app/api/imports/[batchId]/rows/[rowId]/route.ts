@@ -4,6 +4,10 @@ import { Prisma } from "@prisma/client";
 
 import { PERMISSIONS } from "@/auth/authorization-catalog";
 import { authorizeRoute } from "@/auth/route-access";
+import {
+  normalizeRevisionId,
+  validateRevisionTargets,
+} from "@/holiday/revision";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
 import {
   parseStagingCorrection,
@@ -90,6 +94,7 @@ export async function PATCH(
         select: {
           id: true,
           sourceRowNumber: true,
+          revisionId: true,
           status: true,
           normalizedData: true,
           excludedReason: true,
@@ -153,6 +158,7 @@ export async function PATCH(
     selected.normalizedData as unknown as NormalizedHolidayRow;
 
   let selectedNormalizedData = beforeNormalizedData;
+  let selectedRevisionId = selected.revisionId;
   let selectedExcludedReason: string | null =
     selected.excludedReason;
   let selectedStatus = selected.status;
@@ -170,7 +176,23 @@ export async function PATCH(
       );
     }
 
+    const revisionId = normalizeRevisionId(
+      (
+        mutation.correction as {
+          revisionId?: unknown;
+        }
+      ).revisionId,
+    );
+
+    if (!revisionId.ok) {
+      return Response.json(
+        { error: revisionId.error },
+        { status: 400 },
+      );
+    }
+
     selectedNormalizedData = parsed.value;
+    selectedRevisionId = revisionId.value;
     selectedExcludedReason = null;
     selectedStatus = "VALID";
   }
@@ -208,10 +230,13 @@ export async function PATCH(
     activeRegions.map((region) => region.code),
   );
 
-  const candidates: StagingRowCandidate[] = batch.rows.map(
-    (row) => ({
+  const candidates: Array<
+    StagingRowCandidate & { revisionId: string }
+  > = batch.rows.map((row) => ({
       id: row.id,
       sourceRowNumber: row.sourceRowNumber,
+      revisionId:
+        row.id === rowId ? selectedRevisionId : row.revisionId,
       status:
         row.id === rowId ? selectedStatus : row.status,
       normalizedData:
@@ -224,6 +249,20 @@ export async function PATCH(
           : row.excludedReason,
     }),
   );
+
+  const revisionValidation =
+    await validateRevisionTargets(db, candidates);
+
+  if (!revisionValidation.ok) {
+    return Response.json(
+      {
+        error: revisionValidation.reason,
+        code: revisionValidation.code,
+        revisionId: revisionValidation.revisionId,
+      },
+      { status: 409 },
+    );
+  }
 
   const validation = validateStagingRows(
     candidates,
@@ -320,6 +359,7 @@ export async function PATCH(
 
       if (row.id === selected.id) {
         data.normalizedData = asJson(row.normalizedData);
+        data.revisionId = selectedRevisionId;
         data.excludedReason = selectedExcludedReason;
         data.editedBy = {
           connect: { id: access.session.user.id },
@@ -363,6 +403,8 @@ export async function PATCH(
           nextBatchStatus,
           beforeNormalizedData,
           afterNormalizedData: selectedNormalizedData,
+          beforeRevisionId: selected.revisionId,
+          afterRevisionId: selectedRevisionId,
           exclusionReason: selectedExcludedReason,
         },
       },

@@ -22,8 +22,6 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   holidayName: "Holiday name",
   notes: "Notes",
   regionCode: "Region",
-  sourceReference: "Source reference",
-  sourceRowId: "Source row ID",
   startDate: "Start date",
 };
 

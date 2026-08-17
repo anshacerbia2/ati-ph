@@ -32,7 +32,6 @@ const issueSchema = z.object({
 });
 
 const normalizedRowSchema = z.object({
-  sourceRowId: z.string().max(1_000).optional(),
   regionCodes: z.array(z.string().min(1).max(16)).max(20),
   sourceRegions: z.array(z.string().max(500)).max(20),
   holidayName: z.string().max(5_000),
@@ -40,14 +39,12 @@ const normalizedRowSchema = z.object({
   startDate: z.string().max(32).optional(),
   endDate: z.string().max(32).optional(),
   calendarYear: z.number().int().min(1900).max(9999).optional(),
-  sourceReference: z.string().max(10_000).optional(),
   notes: z.string().max(20_000).optional(),
 });
 
 const rowSchema = z.object({
   sourceSheet: z.string().max(150),
   sourceRowNumber: z.number().int().positive(),
-  sourceRowId: z.string().max(1_000).optional(),
   rawData: z.record(z.string().max(500), z.unknown()),
   normalizedData: normalizedRowSchema,
   status: z.enum(["VALID", "INVALID"]),

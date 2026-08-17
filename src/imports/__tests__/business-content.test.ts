@@ -13,13 +13,11 @@ function row(
   return {
     sourceSheet: "Holiday_Master",
     sourceRowNumber: 2,
-    sourceRowId: "SRC-1",
     rawData: {
       Region: "Australia",
       "PH Name": "New Year",
     },
     normalizedData: {
-      sourceRowId: "SRC-1",
       sourceRegions: ["Australia"],
       regionCodes: ["AU"],
       holidayName: "New Year",
@@ -27,7 +25,6 @@ function row(
       startDate: "2027-01-01",
       endDate: "2027-01-01",
       calendarYear: 2027,
-      sourceReference: "REF-1",
       notes: "original note",
       ...overrides,
     },
@@ -52,7 +49,6 @@ describe("business content hashing", () => {
         },
         {
           sourceRowNumber: 3,
-          sourceRowId: "SRC-2",
         },
       ),
     ];
@@ -83,13 +79,10 @@ describe("business content hashing", () => {
 
     const second = row(
       {
-        sourceRowId: "DIFFERENT",
-        sourceReference: "OTHER-REF",
         notes: "different notes",
       },
       {
         sourceRowNumber: 99,
-        sourceRowId: "DIFFERENT",
         rawData: {
           Region: "AU",
           "PH Name": "NEW YEAR",

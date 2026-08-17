@@ -6,6 +6,7 @@ import {
 } from "@/approvals/import-approval";
 import { PERMISSIONS } from "@/auth/authorization-catalog";
 import { authorizeRoute } from "@/auth/route-access";
+import { validateRevisionTargets } from "@/holiday/revision";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
 import { db } from "@/lib/db";
 
@@ -50,6 +51,19 @@ export async function POST(
   if (!eligibility.ok) {
     return Response.json(
       { error: eligibility.reason },
+      { status: 409 },
+    );
+  }
+
+  const revisionValidation =
+    await validateRevisionTargets(db, batch.rows);
+  if (!revisionValidation.ok) {
+    return Response.json(
+      {
+        error: revisionValidation.reason,
+        code: revisionValidation.code,
+        revisionId: revisionValidation.revisionId,
+      },
       { status: 409 },
     );
   }
@@ -239,6 +253,19 @@ export async function PATCH(
         { status: 409 },
       );
     }
+
+    const revisionValidation =
+      await validateRevisionTargets(db, batch.rows);
+    if (!revisionValidation.ok) {
+      return Response.json(
+        {
+          error: revisionValidation.reason,
+          code: revisionValidation.code,
+          revisionId: revisionValidation.revisionId,
+        },
+        { status: 409 },
+      );
+    }
   }
 
   const currentHash = contentHashFor(batch);
@@ -337,6 +364,7 @@ async function loadApprovalBatch(batchId: string) {
           id: true,
           sourceSheet: true,
           sourceRowNumber: true,
+          revisionId: true,
           status: true,
           normalizedData: true,
           excludedReason: true,

@@ -1975,3 +1975,42 @@ tbody tr:hover { background: var(--ati-gray-50); }
     flex-direction: column;
   }
 }
+
+/* Holiday revision control v1 */
+.revision-id {
+  display: block;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--ati-gray-50);
+  color: var(--text-body);
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-size: var(--fs-micro);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.publication-lineage__col--revision {
+  width: 210px;
+}
+
+.staging-table {
+  min-width: 1320px;
+}
+
+.staging-table__col--revision {
+  width: 210px;
+}
+
+.staging-field small {
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+  line-height: 1.45;
+}

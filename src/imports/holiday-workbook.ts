@@ -22,12 +22,10 @@ import {
 import { normalizeLookupKey } from "@/lib/lookup-key";
 
 type CanonicalField =
-  | "sourceRowId"
   | "regionCode"
   | "holidayName"
   | "startDate"
   | "endDate"
-  | "sourceReference"
   | "notes";
 
 type ColumnBinding = {
@@ -45,7 +43,6 @@ const REQUIRED_FIELDS: readonly CanonicalField[] = [
 ];
 
 const HEADER_ALIASES = new Map<string, CanonicalField>([
-  ["sourcerowid", "sourceRowId"],
   ["region", "regionCode"],
   ["regioncode", "regionCode"],
   ["calendarregion", "regionCode"],
@@ -56,7 +53,6 @@ const HEADER_ALIASES = new Map<string, CanonicalField>([
   ["startdate", "startDate"],
   ["phenddate", "endDate"],
   ["enddate", "endDate"],
-  ["sourcereference", "sourceReference"],
   ["remarks", "notes"],
   ["notes", "notes"],
 ]);
@@ -164,7 +160,6 @@ export async function parseHolidayWorkbook(
     rows.push({
       sourceSheet: HOLIDAY_SOURCE_SHEET,
       sourceRowNumber,
-      sourceRowId: normalizedData.sourceRowId,
       rawData,
       normalizedData,
       status: currentIssues.some((issue) => issue.severity === "ERROR")
@@ -306,7 +301,6 @@ function normalizeHolidayRow(
   issues: ImportIssue[],
   sourceRowNumber: number,
 ): NormalizedHolidayRow {
-  const sourceRowId = optionalText(worksheet, zeroBasedRow, mapping.sourceRowId);
   const regionValue = requiredText(
     worksheet,
     zeroBasedRow,
@@ -340,15 +334,6 @@ function normalizeHolidayRow(
     sourceRowNumber,
   );
 
-  if (sourceRowId && sourceRowId.length > 200) {
-    issues.push({
-      severity: "ERROR",
-      code: "VALUE_TOO_LONG",
-      fieldName: "sourceRowId",
-      message: "sourceRowId cannot exceed 200 characters.",
-      sourceRowNumber,
-    });
-  }
 
   if (holidayName.length > 200) {
     issues.push({
@@ -361,22 +346,7 @@ function normalizeHolidayRow(
     });
   }
 
-  const sourceReference = optionalText(
-    worksheet,
-    zeroBasedRow,
-    mapping.sourceReference,
-  );
   const notes = optionalText(worksheet, zeroBasedRow, mapping.notes);
-
-  if (sourceReference && sourceReference.length > 500) {
-    issues.push({
-      severity: "ERROR",
-      code: "VALUE_TOO_LONG",
-      fieldName: "sourceReference",
-      message: "sourceReference cannot exceed 500 characters.",
-      sourceRowNumber,
-    });
-  }
 
   if (notes && notes.length > 2_000) {
     issues.push({
@@ -466,7 +436,6 @@ function normalizeHolidayRow(
   }
 
   return {
-    sourceRowId,
     sourceRegions,
     regionCodes,
     holidayName,
@@ -474,7 +443,6 @@ function normalizeHolidayRow(
     startDate,
     endDate,
     calendarYear: startDate ? Number(startDate.slice(0, 4)) : undefined,
-    sourceReference,
     notes,
   };
 }
