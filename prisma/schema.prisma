@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["access", "approval", "governance", "holiday", "import", "notification", "routing"]
 }
 
 enum OutboxStatus {
@@ -12,6 +13,8 @@ enum OutboxStatus {
   PROCESSING
   COMPLETED
   FAILED
+
+  @@schema("governance")
 }
 
 enum ArtifactType {
@@ -21,6 +24,8 @@ enum ArtifactType {
   EMAIL_PREVIEW
   ERROR_REPORT
   PROVIDER_EVENT
+
+  @@schema("governance")
 }
 
 enum ImportBatchStatus {
@@ -29,18 +34,24 @@ enum ImportBatchStatus {
   VALIDATED
   INVALID
   FAILED
+
+  @@schema("import")
 }
 
 enum ImportRowStatus {
   VALID
   INVALID
   EXCLUDED
+
+  @@schema("import")
 }
 
 enum ValidationSeverity {
   ERROR
   WARNING
   INFO
+
+  @@schema("import")
 }
 
 enum ApprovalStatus {
@@ -48,22 +59,30 @@ enum ApprovalStatus {
   APPROVED
   REJECTED
   CANCELLED
+
+  @@schema("approval")
 }
 
 enum SubscriptionRecipientType {
   TO
   CC
+
+  @@schema("routing")
 }
 
 enum HolidayDayFilter {
   WEEKDAY
   WEEKEND
   ALL
+
+  @@schema("notification")
 }
 
 enum NotificationLeadTimeMode {
   CALENDAR_DAY
   BUSINESS_DAY
+
+  @@schema("notification")
 }
 
 enum NotificationWeekendAdjustment {
@@ -71,18 +90,24 @@ enum NotificationWeekendAdjustment {
   NONE
   PREVIOUS_BUSINESS_DAY
   NEXT_BUSINESS_DAY
+
+  @@schema("notification")
 }
 
 enum NotificationBusinessDayHolidayMode {
   UNCONFIRMED
   EXCLUDE_PUBLIC_HOLIDAYS
   IGNORE_PUBLIC_HOLIDAYS
+
+  @@schema("notification")
 }
 
 enum NotificationApprovalMode {
   UNCONFIRMED
   REQUIRED
   NOT_REQUIRED
+
+  @@schema("notification")
 }
 
 model User {
@@ -106,6 +131,7 @@ model User {
 
   @@index([isActive])
   @@map("users")
+  @@schema("access")
 }
 
 model FileArtifact {
@@ -126,6 +152,7 @@ model FileArtifact {
   @@index([sha256])
   @@index([artifactType, createdAt])
   @@map("file_artifacts")
+  @@schema("governance")
 }
 
 model ImportBatch {
@@ -160,6 +187,7 @@ model ImportBatch {
   @@index([status, uploadedAt])
   @@index([status, validatedAt])
   @@map("import_batches")
+  @@schema("import")
 }
 
 model ImportRow {
@@ -185,6 +213,7 @@ model ImportRow {
   @@index([importBatchId, status])
   @@index([revisionId])
   @@map("import_rows")
+  @@schema("import")
 }
 
 model ImportValidationIssue {
@@ -206,6 +235,7 @@ model ImportValidationIssue {
   @@index([importBatchId, severity])
   @@index([importRowId])
   @@map("import_validation_issues")
+  @@schema("import")
 }
 
 model HolidayDefinition {
@@ -217,6 +247,7 @@ model HolidayDefinition {
   occurrences    HolidayOccurrence[]
 
   @@map("holiday_definitions")
+  @@schema("holiday")
 }
 
 model HolidayOccurrence {
@@ -246,6 +277,7 @@ model HolidayOccurrence {
   @@index([supersededAt, startDate])
   @@index([notificationCommittedAt])
   @@map("holiday_occurrences")
+  @@schema("holiday")
 }
 
 model HolidayOccurrenceRegion {
@@ -257,6 +289,7 @@ model HolidayOccurrenceRegion {
   @@id([holidayOccurrenceId, calendarRegionId])
   @@index([calendarRegionId, holidayOccurrenceId])
   @@map("holiday_occurrence_regions")
+  @@schema("holiday")
 }
 
 model HolidayOccurrenceDate {
@@ -270,6 +303,7 @@ model HolidayOccurrenceDate {
   @@unique([holidayOccurrenceId, occurrenceDate])
   @@index([occurrenceDate])
   @@map("holiday_occurrence_dates")
+  @@schema("holiday")
 }
 
 model ApprovalRequest {
@@ -292,6 +326,7 @@ model ApprovalRequest {
   @@index([resourceType, resourceId, requestedAt])
   @@index([status, requestedAt])
   @@map("approval_requests")
+  @@schema("approval")
 }
 
 model AuthSession {
@@ -316,6 +351,7 @@ model AuthSession {
   @@index([keycloakSid, revokedAt])
   @@index([revokedAt, expiresAt])
   @@map("auth_sessions")
+  @@schema("access")
 }
 
 model AuditEvent {
@@ -331,6 +367,7 @@ model AuditEvent {
   @@index([userId, occurredAt])
   @@index([entityType, entityId])
   @@map("audit_events")
+  @@schema("governance")
 }
 
 model OutboxEvent {
@@ -349,6 +386,7 @@ model OutboxEvent {
 
   @@index([status, availableAt])
   @@map("outbox_events")
+  @@schema("governance")
 }
 
 model Role {
@@ -365,6 +403,7 @@ model Role {
 
   @@index([isActive, code])
   @@map("roles")
+  @@schema("access")
 }
 
 model Permission {
@@ -381,6 +420,7 @@ model Permission {
 
   @@index([isActive, code])
   @@map("permissions")
+  @@schema("access")
 }
 
 model RolePermission {
@@ -393,6 +433,7 @@ model RolePermission {
   @@id([roleId, permissionId])
   @@index([permissionId])
   @@map("role_permissions")
+  @@schema("access")
 }
 
 model UserRoleAssignment {
@@ -405,6 +446,7 @@ model UserRoleAssignment {
   @@id([userId, roleId])
   @@index([roleId])
   @@map("user_roles")
+  @@schema("access")
 }
 
 model Menu {
@@ -426,6 +468,7 @@ model Menu {
   @@index([requiredPermissionId])
   @@index([isActive, sortOrder])
   @@map("menus")
+  @@schema("access")
 }
 
 model Client {
@@ -440,6 +483,7 @@ model Client {
 
   @@index([isActive, name])
   @@map("clients")
+  @@schema("routing")
 }
 
 model ServiceTeam {
@@ -456,6 +500,7 @@ model ServiceTeam {
   @@unique([clientId, normalizedName])
   @@index([clientId, isActive, name])
   @@map("service_teams")
+  @@schema("routing")
 }
 
 model Contact {
@@ -473,6 +518,7 @@ model Contact {
   @@unique([clientId, normalizedEmail])
   @@index([clientId, isActive])
   @@map("contacts")
+  @@schema("routing")
 }
 
 model ClientSubscription {
@@ -493,6 +539,7 @@ model ClientSubscription {
   @@index([calendarRegionId, isActive])
   @@index([serviceTeamId, isActive])
   @@map("client_subscriptions")
+  @@schema("routing")
 }
 
 model SubscriptionRecipient {
@@ -507,8 +554,9 @@ model SubscriptionRecipient {
 
   @@id([subscriptionId, contactId])
   @@index([contactId, isActive])
-  @@index([subscriptionId, recipientType, isActive])
+  @@index([subscriptionId, recipientType, isActive], map: "subscription_recipients_subscription_recipient_active_idx")
   @@map("subscription_recipients")
+  @@schema("routing")
 }
 
 model NotificationPolicy {
@@ -522,6 +570,7 @@ model NotificationPolicy {
 
   @@index([isActive, createdAt])
   @@map("notification_policies")
+  @@schema("notification")
 }
 
 model NotificationPolicyVersion {
@@ -546,6 +595,7 @@ model NotificationPolicyVersion {
   @@unique([notificationPolicyId, version])
   @@index([notificationPolicyId, isActive])
   @@map("notification_policy_versions")
+  @@schema("notification")
 }
 
 model CalendarRegion {
@@ -561,6 +611,7 @@ model CalendarRegion {
 
   @@index([isActive, code])
   @@map("calendar_regions")
+  @@schema("holiday")
 }
 
 model CalendarRegionAlias {
@@ -575,4 +626,5 @@ model CalendarRegionAlias {
 
   @@index([regionId, isActive])
   @@map("calendar_region_aliases")
+  @@schema("holiday")
 }

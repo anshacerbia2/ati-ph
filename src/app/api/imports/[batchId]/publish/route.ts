@@ -46,7 +46,7 @@ async function lockRevisionTargets(
   await transaction.$queryRaw(
     Prisma.sql`
       SELECT "id"
-      FROM "holiday_occurrences"
+      FROM "holiday"."holiday_occurrences"
       WHERE "id" IN (${Prisma.join(ids)})
       ORDER BY "id"
       FOR UPDATE

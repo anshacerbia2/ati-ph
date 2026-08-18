@@ -83,6 +83,15 @@ npm run authz:grant -- --email user@example.com --role APPROVER
 
 Supported system roles are `ADMINISTRATOR`, `OPERATOR`, `APPROVER`, and `AUDITOR`. One user may hold multiple roles. Maker-checker still requires the approval requester and approver to be different users even when one account holds both OPERATOR and APPROVER.
 
+## Database schema boundaries
+
+ATI PH uses one PostgreSQL database with explicit bounded-context schemas for
+`access`, `governance`, `import`, `approval`, `holiday`, `routing`, and
+`notification`. Prisma relations may cross those schemas inside the modular
+monolith, while raw SQL must use schema-qualified application table names.
+
+See `docs/DATABASE-SCHEMA-BOUNDARIES.md` for the mapping and invariants.
+
 ## Validation
 
 ```text
