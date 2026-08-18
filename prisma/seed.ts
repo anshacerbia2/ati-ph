@@ -351,6 +351,40 @@ async function seedClientMasterRouting(): Promise<void> {
       });
     }
 
+    const policy = await db.notificationPolicy.upsert({
+      where: { clientSubscriptionId: subscription.id },
+      create: { clientSubscriptionId: subscription.id, isActive: true },
+      update: {},
+      select: { id: true },
+    });
+
+    const existingPolicyVersion = await db.notificationPolicyVersion.findFirst({
+      where: { notificationPolicyId: policy.id },
+      orderBy: { version: "desc" },
+      select: { id: true },
+    });
+
+    if (!existingPolicyVersion) {
+      await db.notificationPolicyVersion.create({
+        data: {
+          notificationPolicyId: policy.id,
+          version: 1,
+          holidayDayFilter: record.dayFilter === "Weekdays" ? "WEEKDAY" : "WEEKEND",
+          leadTimeValue: null,
+          leadTimeMode: null,
+          sendTimeLocal: null,
+          timezone: null,
+          weekendAdjustment: "UNCONFIRMED",
+          businessDayHolidayMode: "UNCONFIRMED",
+          approvalMode: "UNCONFIRMED",
+          automaticSendAllowed: false,
+          retryCeiling: null,
+          isActive: true,
+          changeReason: "Migrated from Client_Master.Tag",
+        },
+      });
+    }
+
     const assignments = [
       ...record.to.map((email) => ({
         email,
@@ -425,11 +459,32 @@ async function seedClientMasterRouting(): Promise<void> {
 }
 
 
+async function seedMissingNotificationPolicyShells(): Promise<void> {
+  const subscriptions = await db.clientSubscription.findMany({
+    where: { notificationPolicy: null },
+    select: { id: true },
+  });
+
+  for (const subscription of subscriptions) {
+    await db.notificationPolicy.create({
+      data: { clientSubscriptionId: subscription.id },
+    });
+  }
+
+  if (subscriptions.length > 0) {
+    console.info(
+      "Notification-policy shells created for " + subscriptions.length + " existing subscriptions.",
+    );
+  }
+}
+
+
 async function main(): Promise<void> {
   await seedAuthorization();
   await seedCalendarRegions();
   await seedClientMasterRouting();
-  console.info("ATI PH authorization, calendar-region, and client-routing bootstrap complete.");
+  await seedMissingNotificationPolicyShells();
+  console.info("ATI PH authorization, calendar-region, client-routing, and notification-policy bootstrap complete.");
 }
 
 main()

@@ -55,6 +55,36 @@ enum SubscriptionRecipientType {
   CC
 }
 
+enum HolidayDayFilter {
+  WEEKDAY
+  WEEKEND
+  ALL
+}
+
+enum NotificationLeadTimeMode {
+  CALENDAR_DAY
+  BUSINESS_DAY
+}
+
+enum NotificationWeekendAdjustment {
+  UNCONFIRMED
+  NONE
+  PREVIOUS_BUSINESS_DAY
+  NEXT_BUSINESS_DAY
+}
+
+enum NotificationBusinessDayHolidayMode {
+  UNCONFIRMED
+  EXCLUDE_PUBLIC_HOLIDAYS
+  IGNORE_PUBLIC_HOLIDAYS
+}
+
+enum NotificationApprovalMode {
+  UNCONFIRMED
+  REQUIRED
+  NOT_REQUIRED
+}
+
 model User {
   id                   String                  @id @default(uuid()) @db.Uuid
   externalSubject      String                  @unique @db.VarChar(191)
@@ -448,17 +478,18 @@ model Contact {
 }
 
 model ClientSubscription {
-  id               String                  @id @default(uuid()) @db.Uuid
-  serviceTeamId    String                  @db.Uuid
-  calendarRegionId String                  @db.Uuid
-  effectiveFrom    DateTime?               @db.Date
-  effectiveTo      DateTime?               @db.Date
-  isActive         Boolean                 @default(true)
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  serviceTeam      ServiceTeam             @relation(fields: [serviceTeamId], references: [id], onDelete: Restrict)
-  calendarRegion   CalendarRegion          @relation(fields: [calendarRegionId], references: [id], onDelete: Restrict)
-  recipients       SubscriptionRecipient[]
+  id                 String                  @id @default(uuid()) @db.Uuid
+  serviceTeamId      String                  @db.Uuid
+  calendarRegionId   String                  @db.Uuid
+  effectiveFrom      DateTime?               @db.Date
+  effectiveTo        DateTime?               @db.Date
+  isActive           Boolean                 @default(true)
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  serviceTeam        ServiceTeam             @relation(fields: [serviceTeamId], references: [id], onDelete: Restrict)
+  calendarRegion     CalendarRegion          @relation(fields: [calendarRegionId], references: [id], onDelete: Restrict)
+  recipients         SubscriptionRecipient[]
+  notificationPolicy NotificationPolicy?
 
   @@index([serviceTeamId, calendarRegionId])
   @@index([calendarRegionId, isActive])
@@ -480,6 +511,43 @@ model SubscriptionRecipient {
   @@index([contactId, isActive])
   @@index([subscriptionId, recipientType, isActive])
   @@map("subscription_recipients")
+}
+
+model NotificationPolicy {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  clientSubscriptionId String                      @unique @db.Uuid
+  isActive             Boolean                     @default(true)
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+  subscription         ClientSubscription          @relation(fields: [clientSubscriptionId], references: [id], onDelete: Restrict)
+  versions             NotificationPolicyVersion[]
+
+  @@index([isActive, createdAt])
+  @@map("notification_policies")
+}
+
+model NotificationPolicyVersion {
+  id                     String                             @id @default(uuid()) @db.Uuid
+  notificationPolicyId   String                             @db.Uuid
+  version                Int
+  holidayDayFilter       HolidayDayFilter
+  leadTimeValue          Int?
+  leadTimeMode           NotificationLeadTimeMode?
+  sendTimeLocal          String?                            @db.VarChar(5)
+  timezone               String?                            @db.VarChar(100)
+  weekendAdjustment      NotificationWeekendAdjustment      @default(UNCONFIRMED)
+  businessDayHolidayMode NotificationBusinessDayHolidayMode @default(UNCONFIRMED)
+  approvalMode           NotificationApprovalMode           @default(UNCONFIRMED)
+  automaticSendAllowed   Boolean                            @default(false)
+  retryCeiling           Int?
+  isActive               Boolean                            @default(true)
+  changeReason           String?                            @db.VarChar(500)
+  createdAt              DateTime                           @default(now())
+  policy                 NotificationPolicy                 @relation(fields: [notificationPolicyId], references: [id], onDelete: Restrict)
+
+  @@unique([notificationPolicyId, version])
+  @@index([notificationPolicyId, isActive])
+  @@map("notification_policy_versions")
 }
 
 model CalendarRegion {

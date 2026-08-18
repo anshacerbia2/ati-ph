@@ -6,6 +6,9 @@ export const PERMISSIONS = {
   IMPORT_APPROVE: "import.approve",
   CLIENT_READ: "client.read",
   CLIENT_MANAGE: "client.manage",
+  NOTIFICATION_POLICY_READ: "notification_policy.read",
+  NOTIFICATION_POLICY_MANAGE: "notification_policy.manage",
+  NOTIFICATION_PLAN_READ: "notification_plan.read",
 } as const;
 
 export type PermissionCode =
@@ -74,6 +77,21 @@ export const SYSTEM_PERMISSIONS = [
     description:
       "Manage clients, service teams, contacts, subscriptions, and recipients",
   },
+  {
+    code: PERMISSIONS.NOTIFICATION_POLICY_READ,
+    name: "Read notification policies",
+    description: "View versioned notification policy configuration",
+  },
+  {
+    code: PERMISSIONS.NOTIFICATION_POLICY_MANAGE,
+    name: "Manage notification policies",
+    description: "Create governed notification policy versions",
+  },
+  {
+    code: PERMISSIONS.NOTIFICATION_PLAN_READ,
+    name: "Read notification planning",
+    description: "Run read-only explainable shadow matching previews",
+  },
 ] as const;
 
 export const ROLE_PERMISSION_CODES: Record<
@@ -88,23 +106,32 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.IMPORT_APPROVE,
     PERMISSIONS.CLIENT_READ,
     PERMISSIONS.CLIENT_MANAGE,
+    PERMISSIONS.NOTIFICATION_POLICY_READ,
+    PERMISSIONS.NOTIFICATION_POLICY_MANAGE,
+    PERMISSIONS.NOTIFICATION_PLAN_READ,
   ],
   OPERATOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.IMPORT_CREATE,
     PERMISSIONS.CLIENT_READ,
+    PERMISSIONS.NOTIFICATION_POLICY_READ,
+    PERMISSIONS.NOTIFICATION_PLAN_READ,
   ],
   APPROVER: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.IMPORT_APPROVE,
     PERMISSIONS.CLIENT_READ,
+    PERMISSIONS.NOTIFICATION_POLICY_READ,
+    PERMISSIONS.NOTIFICATION_PLAN_READ,
   ],
   AUDITOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
     PERMISSIONS.IMPORT_READ,
     PERMISSIONS.CLIENT_READ,
+    PERMISSIONS.NOTIFICATION_POLICY_READ,
+    PERMISSIONS.NOTIFICATION_PLAN_READ,
   ],
 };
 
@@ -139,6 +166,14 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
     sortOrder: 10,
   },
   {
+    code: "notification_planning",
+    label: "Notification Planning",
+    path: "/notification-planning",
+    parentCode: "public_holiday_operations",
+    requiredPermission: PERMISSIONS.NOTIFICATION_PLAN_READ,
+    sortOrder: 20,
+  },
+  {
     code: "administration",
     label: "Administration",
     sortOrder: 30,
@@ -158,5 +193,13 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
     parentCode: "administration",
     requiredPermission: PERMISSIONS.CLIENT_READ,
     sortOrder: 20,
+  },
+  {
+    code: "notification_policies",
+    label: "Notification Policies",
+    path: "/admin/notification-policies",
+    parentCode: "administration",
+    requiredPermission: PERMISSIONS.NOTIFICATION_POLICY_READ,
+    sortOrder: 30,
   },
 ];

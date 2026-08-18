@@ -585,6 +585,9 @@ export async function createSubscription(
         calendarRegionId: region.id,
         effectiveFrom: dateValue(effectiveFrom),
         effectiveTo: dateValue(effectiveTo),
+        notificationPolicy: {
+          create: {},
+        },
       },
       include: {
         calendarRegion: {
