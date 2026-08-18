@@ -50,6 +50,11 @@ enum ApprovalStatus {
   CANCELLED
 }
 
+enum SubscriptionRecipientType {
+  TO
+  CC
+}
+
 model User {
   id                   String                  @id @default(uuid()) @db.Uuid
   externalSubject      String                  @unique @db.VarChar(191)
@@ -462,16 +467,18 @@ model ClientSubscription {
 }
 
 model SubscriptionRecipient {
-  subscriptionId String             @db.Uuid
-  contactId      String             @db.Uuid
-  isActive       Boolean            @default(true)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  subscription   ClientSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  contact        Contact            @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  subscriptionId String                    @db.Uuid
+  contactId      String                    @db.Uuid
+  recipientType  SubscriptionRecipientType @default(TO)
+  isActive       Boolean                   @default(true)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  subscription   ClientSubscription        @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  contact        Contact                   @relation(fields: [contactId], references: [id], onDelete: Restrict)
 
   @@id([subscriptionId, contactId])
   @@index([contactId, isActive])
+  @@index([subscriptionId, recipientType, isActive])
   @@map("subscription_recipients")
 }
 

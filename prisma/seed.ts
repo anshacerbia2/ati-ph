@@ -6,7 +6,13 @@ import {
   SYSTEM_PERMISSIONS,
   SYSTEM_ROLES,
 } from "../src/auth/authorization-catalog";
+import {
+  normalizeClientName,
+  normalizeContactEmail,
+  normalizeServiceTeamName,
+} from "../src/clients/routing";
 import { normalizeLookupKey } from "../src/lib/lookup-key";
+import { CLIENT_MASTER_ROUTING_SEED } from "./seed-data/client-master-routing";
 
 const db = new PrismaClient();
 
@@ -185,10 +191,245 @@ async function seedCalendarRegions(): Promise<void> {
   });
 }
 
+async function cleanupIncorrectFctgAggregateBootstrap(): Promise<void> {
+  const normalizedName = normalizeClientName("FCTG");
+  const aggregate = await db.client.findUnique({
+    where: { normalizedName },
+    include: {
+      serviceTeams: {
+        select: { id: true, normalizedName: true },
+      },
+      contacts: {
+        select: { normalizedEmail: true },
+      },
+    },
+  });
+
+  if (!aggregate) return;
+
+  const expectedTeamNames = new Set(
+    CLIENT_MASTER_ROUTING_SEED.records.map((record) =>
+      normalizeServiceTeamName(record.clientName),
+    ),
+  );
+  const expectedEmails = new Set(
+    CLIENT_MASTER_ROUTING_SEED.records.flatMap((record) =>
+      [...record.to, ...record.cc].map(normalizeContactEmail),
+    ),
+  );
+
+  const looksLikeIncorrectBootstrap =
+    aggregate.serviceTeams.length === expectedTeamNames.size &&
+    aggregate.serviceTeams.every((team) =>
+      expectedTeamNames.has(team.normalizedName),
+    ) &&
+    aggregate.contacts.length === expectedEmails.size &&
+    aggregate.contacts.every((contact) =>
+      expectedEmails.has(contact.normalizedEmail),
+    );
+
+  if (!looksLikeIncorrectBootstrap) {
+    console.warn(
+      "FCTG aggregate client exists but does not match the previous generated bootstrap fingerprint; leaving it untouched.",
+    );
+    return;
+  }
+
+  const teamIds = aggregate.serviceTeams.map((team) => team.id);
+  const subscriptions = await db.clientSubscription.findMany({
+    where: { serviceTeamId: { in: teamIds } },
+    select: { id: true },
+  });
+  const subscriptionIds = subscriptions.map((subscription) => subscription.id);
+
+  await db.$transaction(async (tx) => {
+    if (subscriptionIds.length > 0) {
+      await tx.subscriptionRecipient.deleteMany({
+        where: { subscriptionId: { in: subscriptionIds } },
+      });
+      await tx.clientSubscription.deleteMany({
+        where: { id: { in: subscriptionIds } },
+      });
+    }
+
+    if (teamIds.length > 0) {
+      await tx.serviceTeam.deleteMany({
+        where: { id: { in: teamIds } },
+      });
+    }
+
+    await tx.contact.deleteMany({
+      where: { clientId: aggregate.id },
+    });
+
+    await tx.client.delete({
+      where: { id: aggregate.id },
+    });
+  });
+
+  console.info(
+    "Removed the previous incorrect FCTG-as-one-client bootstrap aggregate.",
+  );
+}
+
+async function seedClientMasterRouting(): Promise<void> {
+  const source = CLIENT_MASTER_ROUTING_SEED;
+  const regionRows = await db.calendarRegion.findMany({
+    select: { id: true, displayName: true },
+  });
+  const regionByName = new Map(
+    regionRows.map((region) => [region.displayName, region]),
+  );
+
+  await cleanupIncorrectFctgAggregateBootstrap();
+
+  let contactCount = 0;
+  let assignmentCount = 0;
+
+  for (const record of source.records) {
+    const normalizedClientName = normalizeClientName(record.clientName);
+    const isActive = record.status === "Active";
+
+    const client = await db.client.upsert({
+      where: { normalizedName: normalizedClientName },
+      create: {
+        name: record.clientName,
+        normalizedName: normalizedClientName,
+        isActive,
+      },
+      update: {},
+      select: { id: true },
+    });
+
+    // Client_Master has no distinct Service Team column. Preserve all routing
+    // data without inventing a label by projecting the source Client Name
+    // one-to-one into ServiceTeam for the current subscription hierarchy.
+    const normalizedTeamName = normalizeServiceTeamName(record.clientName);
+    const team = await db.serviceTeam.upsert({
+      where: {
+        clientId_normalizedName: {
+          clientId: client.id,
+          normalizedName: normalizedTeamName,
+        },
+      },
+      create: {
+        clientId: client.id,
+        name: record.clientName,
+        normalizedName: normalizedTeamName,
+        isActive,
+      },
+      update: {},
+      select: { id: true },
+    });
+
+    const region = regionByName.get(record.region);
+    if (!region) {
+      throw new Error(
+        `Client_Master seed references unknown calendar region ${record.region}.`,
+      );
+    }
+
+    let subscription = await db.clientSubscription.findFirst({
+      where: {
+        serviceTeamId: team.id,
+        calendarRegionId: region.id,
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+
+    if (!subscription) {
+      subscription = await db.clientSubscription.create({
+        data: {
+          serviceTeamId: team.id,
+          calendarRegionId: region.id,
+          effectiveFrom: null,
+          effectiveTo: null,
+          isActive,
+        },
+        select: { id: true },
+      });
+    }
+
+    const assignments = [
+      ...record.to.map((email) => ({
+        email,
+        recipientType: "TO" as const,
+      })),
+      ...record.cc.map((email) => ({
+        email,
+        recipientType: "CC" as const,
+      })),
+    ];
+
+    for (const assignment of assignments) {
+      const normalizedEmail = normalizeContactEmail(assignment.email);
+      const existingContact = await db.contact.findUnique({
+        where: {
+          clientId_normalizedEmail: {
+            clientId: client.id,
+            normalizedEmail,
+          },
+        },
+        select: { id: true },
+      });
+
+      const contact =
+        existingContact ??
+        (await db.contact.create({
+          data: {
+            clientId: client.id,
+            displayName: null,
+            email: assignment.email,
+            normalizedEmail,
+            isActive: true,
+          },
+          select: { id: true },
+        }));
+
+      if (!existingContact) contactCount += 1;
+
+      const existingRecipient = await db.subscriptionRecipient.findUnique({
+        where: {
+          subscriptionId_contactId: {
+            subscriptionId: subscription.id,
+            contactId: contact.id,
+          },
+        },
+        select: { subscriptionId: true },
+      });
+
+      await db.subscriptionRecipient.upsert({
+        where: {
+          subscriptionId_contactId: {
+            subscriptionId: subscription.id,
+            contactId: contact.id,
+          },
+        },
+        create: {
+          subscriptionId: subscription.id,
+          contactId: contact.id,
+          recipientType: assignment.recipientType,
+          isActive: true,
+        },
+        update: {},
+      });
+
+      if (!existingRecipient) assignmentCount += 1;
+    }
+  }
+
+  console.info(
+    `Client_Master bootstrap complete: ${source.records.length} clients, ${source.records.length} compatibility service teams, ${contactCount} contacts created, ${assignmentCount} recipient assignments created.`,
+  );
+}
+
+
 async function main(): Promise<void> {
   await seedAuthorization();
   await seedCalendarRegions();
-  console.info("ATI PH authorization and calendar-region bootstrap complete.");
+  await seedClientMasterRouting();
+  console.info("ATI PH authorization, calendar-region, and client-routing bootstrap complete.");
 }
 
 main()

@@ -8,15 +8,23 @@ import {
   clientRoutingErrorResponse,
   readClientRoutingJson,
 } from "@/clients/http";
+import { parseClientListQuery } from "@/clients/list-query";
 
 export const runtime = "nodejs";
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const access = await authorizeRoute(PERMISSIONS.CLIENT_READ);
   if (!access.ok) return access.response;
 
   try {
-    return Response.json(await listClientRoutingConfiguration());
+    const searchParams = new URL(request.url).searchParams;
+    const query = parseClientListQuery({
+      search: searchParams.get("search"),
+      page: searchParams.get("page"),
+      pageSize: searchParams.get("pageSize"),
+    });
+
+    return Response.json(await listClientRoutingConfiguration(query));
   } catch (error) {
     return clientRoutingErrorResponse(error, "load");
   }

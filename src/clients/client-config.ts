@@ -10,6 +10,7 @@ import {
   normalizeServiceTeamName,
   validateEffectiveWindow,
 } from "@/clients/routing";
+import type { ClientListQuery } from "@/clients/list-query";
 import { db } from "@/lib/db";
 
 export class ClientRoutingError extends Error {
@@ -144,22 +145,48 @@ const updateSubscriptionSchema = z
   })
   .refine(hasDefinedValue, "At least one subscription field must be provided.");
 
+const recipientTypeSchema = z.enum(["TO", "CC"]);
+
 const assignRecipientSchema = z.object({
   contactId: uuidSchema,
+  recipientType: recipientTypeSchema.default("TO"),
 });
 
-const updateRecipientSchema = z.object({
-  isActive: z.boolean(),
-});
+const updateRecipientSchema = z
+  .object({
+    isActive: z.boolean().optional(),
+    recipientType: recipientTypeSchema.optional(),
+  })
+  .refine(hasDefinedValue, "At least one recipient field must be provided.");
 
-export async function listClientRoutingConfiguration() {
+export async function listClientRoutingConfiguration(
+  query: ClientListQuery,
+) {
+  const where: Prisma.ClientWhereInput = query.search
+    ? {
+        name: {
+          contains: query.search,
+          mode: "insensitive",
+        },
+      }
+    : {};
+
+  const total = await db.client.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
+  const page = Math.min(query.page, pageCount);
+  const offset = (page - 1) * query.pageSize;
+
   const [clients, regions] = await Promise.all([
     db.client.findMany({
+      where,
       include: clientConfigurationInclude,
       orderBy: [
         { isActive: "desc" },
         { name: "asc" },
+        { id: "asc" },
       ],
+      skip: offset,
+      take: query.pageSize,
     }),
     db.calendarRegion.findMany({
       orderBy: [
@@ -175,7 +202,18 @@ export async function listClientRoutingConfiguration() {
     }),
   ]);
 
-  return { clients, regions };
+  return {
+    clients,
+    regions,
+    pagination: {
+      page,
+      pageSize: query.pageSize,
+      pageCount,
+      total,
+      from: total === 0 ? 0 : offset + 1,
+      to: total === 0 ? 0 : Math.min(offset + query.pageSize, total),
+    },
+  };
 }
 
 export async function createClient(input: unknown, actorId: string) {
@@ -746,8 +784,10 @@ export async function assignSubscriptionRecipient(
       create: {
         subscriptionId,
         contactId: contact.id,
+        recipientType: parsed.recipientType,
       },
       update: {
+        recipientType: parsed.recipientType,
         isActive: true,
       },
     });
@@ -819,7 +859,7 @@ export async function updateSubscriptionRecipient(
       );
     }
 
-    if (parsed.isActive && !before.contact.isActive) {
+    if (parsed.isActive === true && !before.contact.isActive) {
       throw new ClientRoutingError(
         "INACTIVE_PARENT",
         "An inactive contact cannot be reactivated as a recipient.",
@@ -834,7 +874,14 @@ export async function updateSubscriptionRecipient(
           contactId,
         },
       },
-      data: { isActive: parsed.isActive },
+      data: {
+        ...(parsed.isActive !== undefined
+          ? { isActive: parsed.isActive }
+          : {}),
+        ...(parsed.recipientType !== undefined
+          ? { recipientType: parsed.recipientType }
+          : {}),
+      },
     });
 
     await writeAudit(
@@ -1090,11 +1137,13 @@ function subscriptionSnapshot(subscription: {
 function recipientSnapshot(recipient: {
   subscriptionId: string;
   contactId: string;
+  recipientType: "TO" | "CC";
   isActive: boolean;
 }) {
   return {
     subscriptionId: recipient.subscriptionId,
     contactId: recipient.contactId,
+    recipientType: recipient.recipientType,
     isActive: recipient.isActive,
   };
 }
