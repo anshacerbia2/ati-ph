@@ -90,18 +90,20 @@ The browser preview is UX-only. Submit sends the untouched raw XLSX and no brows
 
 The API is the authoritative import boundary. It validates the XLSX package, resolves active calendar-region aliases, parses `Holiday_Master` exactly once, normalizes and validates the workbook, computes `businessContentSha256`, and applies exact plus semantic duplicate hard-blocks before persistence.
 
-A workbook with blocking authoritative `ERROR` results is rejected with `422 WORKBOOK_VALIDATION_FAILED`; it creates no artifact and no import batch.
+Fatal package or workbook-contract failures are rejected before persistence. Examples include unreadable/corrupt XLSX content, unsafe packages, missing required workbook structure, and a workbook with no holiday rows.
 
-For an accepted workbook, the raw artifact is written first. The database transaction then acquires a PostgreSQL advisory lock derived from `businessContentSha256` when available, otherwise `fileSha256`, rechecks exact and business duplicate identity, and atomically creates:
+Row-level authoritative validation errors are different: the raw evidence, authoritative rows, and authoritative issues are persisted as a governed `INVALID` batch so operators can use controlled correction/exclusion instead of editing and re-uploading evidence outside the application.
+
+For a unique structurally accepted workbook, the raw artifact is written first. The database transaction then acquires a PostgreSQL advisory lock derived from `businessContentSha256` when available, otherwise `fileSha256`, rechecks exact and business duplicate identity, and atomically creates:
 
 - `file_artifacts`
-- `import_batches` with status `VALIDATED`
+- `import_batches` with status `VALIDATED` or `INVALID`
 - authoritative `import_rows`
 - authoritative `import_validation_issues`
-- the `IMPORT_WORKBOOK_VALIDATED` audit event
-- the `ImportBatchValidated` outbox event
+- an import validation audit event
+- `ImportBatchValidated` only when the resulting batch status is `VALIDATED`
 
-`validatedAt` records the authoritative server-validation completion time. There is no browser preview hash and no deferred import-verification job.
+`validatedAt` records authoritative server-validation completion, including a completed validation whose governed result is `INVALID`. There is no browser preview hash and no deferred import-verification job.
 
 If the transaction fails or a concurrent duplicate wins the lock, only the not-yet-registered file is removed. Registered artifacts are never overwritten.
 
@@ -142,11 +144,12 @@ Users with the ATI PH `import.read` permission can retrieve evidence for an exis
 - Browser preprocessing is advisory only and is never persisted as authority
 - On confirmation the browser submits only the untouched XLSX
 - The API validates package safety and workbook contract, resolves active region aliases, parses `Holiday_Master` once, normalizes, validates, and computes `businessContentSha256`
-- The API rejects blocking authoritative errors before persistence
+- Fatal XLSX package/workbook-contract failures are rejected before persistence
+- Row-level authoritative errors are persisted as governed `INVALID` staging with raw evidence, rows, and issues
 - The API hard-blocks byte-identical and business-content duplicates before persistence and rechecks both identities under the transaction advisory lock
-- Accepted rows and issues are written only from the authoritative server parse
-- Accepted batches are created directly as `VALIDATED` with `validatedAt`
-- `ImportBatchValidated` is emitted transactionally with the authoritative staging data
+- Persisted rows and issues are written only from the authoritative server parse
+- Structurally accepted batches are created directly as `VALIDATED` or `INVALID` with `validatedAt`
+- `ImportBatchValidated` is emitted transactionally only for a `VALIDATED` result and again when controlled correction transitions an `INVALID` batch to `VALIDATED`
 - There is no `clientPreviewSha256`, `VERIFYING` worker claim, preview-fingerprint comparison, or worker reparse in the active import flow
 - The worker process remains available for maintenance and later durable background capabilities; it is not the authority for governed import parsing
 
@@ -280,7 +283,7 @@ flowchart TD
 
 ### Import batch boundary
 
-One accepted unique workbook creates one `import_batches` row. A workbook blocked as `EXACT_FILE_DUPLICATE`, `SAME_HOLIDAY_DATA`, or authoritative validation failure creates no new artifact and no new import batch.
+One structurally accepted unique workbook creates one `import_batches` row. Row-level authoritative validation errors create a governed `INVALID` batch. A workbook blocked as `EXACT_FILE_DUPLICATE`, `SAME_HOLIDAY_DATA`, or a fatal package/workbook-contract failure creates no new artifact and no new import batch.
 
 ```text
 1 accepted unique XLSX
@@ -292,7 +295,12 @@ One accepted unique workbook creates one `import_batches` row. A workbook blocke
   -> 0..1 active approval lifecycle
   -> N published holiday occurrences
 
-blocked / invalid XLSX
+row-invalid but structurally accepted XLSX
+  -> 1 immutable file_artifacts record
+  -> 1 INVALID import_batches root
+  -> authoritative rows/issues retained for governed correction
+
+fatal / duplicate XLSX
   -> 0 new file_artifacts
   -> 0 new import_batches
 ```

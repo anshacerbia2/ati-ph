@@ -381,6 +381,7 @@ export async function PATCH(
         invalidRows: validation.invalidRows,
         warningCount:
           batchLevelWarningCount + validation.warningCount,
+        validatedAt: now,
       },
     });
 
@@ -426,6 +427,21 @@ export async function PATCH(
           },
         },
       });
+
+      if (nextBatchStatus === "VALIDATED") {
+        await transaction.outboxEvent.create({
+          data: {
+            topic: "ImportBatchValidated",
+            aggregateType: "ImportBatch",
+            aggregateId: batch.id,
+            payload: {
+              eventVersion: 1,
+              importBatchId: batch.id,
+              occurredAt: now.toISOString(),
+            },
+          },
+        });
+      }
     }
   });
 

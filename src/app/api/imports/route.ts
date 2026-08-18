@@ -203,21 +203,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  if (hasBlockingErrors(authoritativePreview)) {
-    return Response.json(
-      {
-        code: "WORKBOOK_VALIDATION_FAILED",
-        error:
-          "Authoritative server validation found blocking workbook errors. No import was created.",
-        issues: authoritativePreview.issues.slice(0, 50),
-        truncatedIssueCount: Math.max(
-          0,
-          authoritativePreview.issues.length - 50,
-        ),
-      },
-      { status: 422 },
-    );
-  }
+  const initialStatus = hasBlockingErrors(authoritativePreview)
+    ? "INVALID"
+    : "VALIDATED";
 
   const businessContentSha256 = computeBusinessContentSha256(
     authoritativePreview.rows,
@@ -336,7 +324,7 @@ export async function POST(request: Request): Promise<Response> {
           columnMapping: asJson(
             authoritativePreview.columnMapping,
           ),
-          status: "VALIDATED",
+          status: initialStatus,
           totalRows,
           validRows,
           invalidRows,
@@ -379,14 +367,17 @@ export async function POST(request: Request): Promise<Response> {
       await transaction.auditEvent.create({
         data: {
           userId: session.user.id,
-          action: "IMPORT_WORKBOOK_VALIDATED",
+          action:
+            initialStatus === "VALIDATED"
+              ? "IMPORT_WORKBOOK_VALIDATED"
+              : "IMPORT_WORKBOOK_INVALID",
           entityType: "ImportBatch",
           entityId: batchId,
           metadata: {
             batchNumber,
             schemaVersion: authoritativePreview.schemaVersion,
             authority: "SERVER_XLSX_PARSE",
-            status: "VALIDATED",
+            status: initialStatus,
             totalRows,
             validRows,
             invalidRows,
@@ -398,18 +389,20 @@ export async function POST(request: Request): Promise<Response> {
         },
       });
 
-      await transaction.outboxEvent.create({
-        data: {
-          topic: "ImportBatchValidated",
-          aggregateType: "ImportBatch",
-          aggregateId: batchId,
-          payload: {
-            eventVersion: 1,
-            importBatchId: batchId,
-            occurredAt: now.toISOString(),
+      if (initialStatus === "VALIDATED") {
+        await transaction.outboxEvent.create({
+          data: {
+            topic: "ImportBatchValidated",
+            aggregateType: "ImportBatch",
+            aggregateId: batchId,
+            payload: {
+              eventVersion: 1,
+              importBatchId: batchId,
+              occurredAt: now.toISOString(),
+            },
           },
-        },
-      });
+        });
+      }
     });
   } catch (error) {
     await removeUnregisteredArtifact(storageKey).catch(
@@ -441,7 +434,7 @@ export async function POST(request: Request): Promise<Response> {
       batch: {
         id: batchId,
         batchNumber,
-        status: "VALIDATED",
+        status: initialStatus,
         totalRows,
         validRows,
         invalidRows,

@@ -147,13 +147,6 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
       return;
     }
 
-    if (previewHasBlockingErrors(preview)) {
-      setError(
-        "Resolve all blocking validation errors before submitting this workbook.",
-      );
-      return;
-    }
-
     setSubmitting(true);
     setError(undefined);
     setResult(undefined);
@@ -246,8 +239,7 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
               !canUpload ||
               submitting ||
               parsing ||
-              !preview ||
-              previewHasBlockingErrors(preview)
+              !preview
             }
             type="submit"
           >
@@ -429,15 +421,21 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
                 <p className="micro-label">{result.batch.batchNumber}</p>
                 <h3>Authoritative validation complete</h3>
               </div>
-              <span className="ati-badge ati-badge--success">
+              <span
+                className={
+                  result.batch.status === "INVALID"
+                    ? "ati-badge ati-badge--danger"
+                    : "ati-badge ati-badge--success"
+                }
+              >
                 {result.batch.status}
               </span>
             </div>
 
             <p className="result-footnote">
-              The accepted batch was created from the authoritative server
-              parse. Raw evidence is immutable and approval can operate on the
-              persisted validated staging state.
+              {result.batch.status === "INVALID"
+                ? "The server persisted this workbook as governed INVALID staging. Raw evidence and authoritative issues are retained so the batch can be corrected or explicitly excluded before approval."
+                : "The accepted batch was created from the authoritative server parse. Raw evidence is immutable and approval can operate on the persisted validated staging state."}
             </p>
           </div>
         ) : null}
@@ -446,23 +444,6 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
 
 
     </>
-  );
-}
-
-function previewHasBlockingErrors(
-  preview: ParsedHolidayWorkbook | undefined,
-): boolean {
-  if (!preview) {
-    return true;
-  }
-
-  return (
-    preview.rows.some(
-      (row) => row.status === "INVALID",
-    ) ||
-    preview.issues.some(
-      (issue) => issue.severity === "ERROR",
-    )
   );
 }
 
