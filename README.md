@@ -96,11 +96,11 @@ npm run build
 
 The dashboard accepts `.xlsx` uploads from users with the `OPERATOR` or
 `ADMINISTRATOR` application role. The current Phase 1 flow previews
-`Holiday_Master` in the browser, performs server-side XLSX and duplicate
-preflight, stores accepted raw evidence immutably, stages provisional rows and
-issues, verifies the stored workbook independently in the worker, supports
-maker-checker approval, and publishes canonical holiday occurrences. Email
-delivery remains outside Phase 1.
+`Holiday_Master` in the browser for UX only, submits only the untouched XLSX,
+parses and validates it authoritatively once in the server API, stores accepted
+raw evidence immutably, persists authoritative rows and issues, emits
+`ImportBatchValidated` transactionally, supports maker-checker approval, and
+publishes canonical holiday occurrences. Email delivery remains outside Phase 1.
 
 Duplicate identity is deliberately split into two layers:
 
@@ -119,7 +119,7 @@ encrypted mounted path or a replacement storage adapter. Set
 `IMPORT_MAX_FILE_SIZE_BYTES` to the approved upload limit.
 
 Phase 1 database changes are represented by the committed Prisma migrations
-under `prisma/migrations`, including preview verification and
+under `prisma/migrations`, including authoritative server validation and
 `businessContentSha256`. Existing environments must run `npm run db:deploy`;
 use `npm run db:migrate` only while developing new migrations.
 

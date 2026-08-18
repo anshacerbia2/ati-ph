@@ -15,15 +15,9 @@ import { PERMISSIONS } from "@/auth/authorization-catalog";
 import { authorizeRoute } from "@/auth/route-access";
 import { computeBusinessContentSha256 } from "@/imports/business-content";
 import {
-  ClientPreviewValidationError,
-  parseClientPreviewJson,
-  previewHasBlockingErrors,
-} from "@/imports/client-preview";
-import {
   parseHolidayWorkbook,
   WorkbookContractError,
 } from "@/imports/holiday-workbook";
-import { computePreviewSha256 } from "@/imports/preview-integrity";
 import { assertSafeXlsxPackage } from "@/imports/xlsx-safety";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
@@ -32,7 +26,6 @@ export const runtime = "nodejs";
 
 const XLSX_MIME =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const MAX_PREVIEW_JSON_BYTES = 8_000_000;
 
 type DuplicateImport = {
   id: string;
@@ -81,7 +74,6 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const upload = formData.get("file");
-  const previewText = formData.get("preview");
 
   if (!(upload instanceof File)) {
     return apiError(
@@ -94,7 +86,11 @@ export async function POST(request: Request): Promise<Response> {
   const env = getServerEnv();
 
   if (upload.size === 0) {
-    return apiError(400, "EMPTY_WORKBOOK", "The selected workbook is empty.");
+    return apiError(
+      400,
+      "EMPTY_WORKBOOK",
+      "The selected workbook is empty.",
+    );
   }
 
   if (upload.size > env.IMPORT_MAX_FILE_SIZE_BYTES) {
@@ -145,7 +141,10 @@ export async function POST(request: Request): Promise<Response> {
     return exactDuplicateResponse(duplicate);
   }
 
-  let businessContentSha256: string | null = null;
+  let authoritativePreview: Awaited<
+    ReturnType<typeof parseHolidayWorkbook>
+  >;
+
   try {
     await assertSafeXlsxPackage(bytes);
 
@@ -170,7 +169,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const authoritativeBusinessPreview = await parseHolidayWorkbook(bytes, {
+    authoritativePreview = await parseHolidayWorkbook(bytes, {
       regionAliases: new Map(
         activeAliases.map((entry) => [
           entry.normalizedAlias,
@@ -179,26 +178,50 @@ export async function POST(request: Request): Promise<Response> {
       ),
       rejectSampleRows: true,
     });
-
-    businessContentSha256 = computeBusinessContentSha256(
-      authoritativeBusinessPreview.rows,
-    );
   } catch (error) {
     if (error instanceof WorkbookContractError) {
       return apiError(
         422,
         "WORKBOOK_SERVER_VALIDATION_FAILED",
-        "The workbook could not pass server-side XLSX validation. Review the workbook and try again.",
+        "The workbook could not pass authoritative server-side XLSX validation. Review the workbook and try again.",
       );
     }
 
-    console.error("ATI PH Holiday_Master duplicate preflight failed.", error);
+    console.error("ATI PH authoritative workbook parsing failed.", error);
     return apiError(
       500,
-      "HOLIDAY_DUPLICATE_PREFLIGHT_FAILED",
-      "ATI PH could not verify the Holiday_Master content. No import was created.",
+      "WORKBOOK_SERVER_VALIDATION_FAILED",
+      "ATI PH could not authoritatively parse the workbook. No import was created.",
     );
   }
+
+  if (authoritativePreview.rows.length === 0) {
+    return apiError(
+      422,
+      "NO_HOLIDAY_ROWS",
+      "No holiday rows were found in Holiday_Master.",
+    );
+  }
+
+  if (hasBlockingErrors(authoritativePreview)) {
+    return Response.json(
+      {
+        code: "WORKBOOK_VALIDATION_FAILED",
+        error:
+          "Authoritative server validation found blocking workbook errors. No import was created.",
+        issues: authoritativePreview.issues.slice(0, 50),
+        truncatedIssueCount: Math.max(
+          0,
+          authoritativePreview.issues.length - 50,
+        ),
+      },
+      { status: 422 },
+    );
+  }
+
+  const businessContentSha256 = computeBusinessContentSha256(
+    authoritativePreview.rows,
+  );
 
   if (businessContentSha256) {
     const businessDuplicate = await findBusinessDuplicate(
@@ -210,62 +233,6 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  if (typeof previewText !== "string" || previewText.length === 0) {
-    return apiError(
-      400,
-      "WORKBOOK_PREVIEW_REQUIRED",
-      "Preview this workbook before submitting it.",
-    );
-  }
-
-  if (Buffer.byteLength(previewText, "utf8") > MAX_PREVIEW_JSON_BYTES) {
-    return apiError(
-      413,
-      "WORKBOOK_PREVIEW_TOO_LARGE",
-      "This workbook contains too much preview data for one import. Split it into smaller imports and try again.",
-    );
-  }
-
-  let preview: ReturnType<typeof parseClientPreviewJson>;
-  try {
-    preview = parseClientPreviewJson(previewText);
-  } catch (error) {
-    if (
-      error instanceof ClientPreviewValidationError &&
-      error.code === "UNSUPPORTED_IMPORT_SCHEMA"
-    ) {
-      return apiError(
-        422,
-        "UNSUPPORTED_IMPORT_SCHEMA",
-        "This workbook uses an unsupported import schema. Use the current ATI PH template or a supported legacy Holiday_Master workbook.",
-      );
-    }
-
-    return apiError(
-      422,
-      "INVALID_WORKBOOK_PREVIEW",
-      "The workbook preview could not be validated. Re-select the XLSX file and wait for the preview to finish before submitting.",
-    );
-  }
-
-  if (preview.rows.length === 0) {
-    return apiError(
-      422,
-      "NO_HOLIDAY_ROWS",
-      "No holiday rows were found in Holiday_Master.",
-    );
-  }
-
-  if (previewHasBlockingErrors(preview)) {
-    return apiError(
-      422,
-      "WORKBOOK_VALIDATION_FAILED",
-      "This workbook has blocking validation errors. Resolve the errors shown in the preview before submitting.",
-    );
-  }
-
-  const clientPreviewSha256 = computePreviewSha256(preview);
-
   // FUTURE: controlled reprocessing of exact or semantically identical
   // Holiday_Master content must be a separate governed/admin recovery flow.
   // Normal imports fail closed on either duplicate identity.
@@ -276,15 +243,18 @@ export async function POST(request: Request): Promise<Response> {
   const batchNumber = makeBatchNumber(now);
 
   const rowIds = new Map<number, string>(
-    preview.rows.map((row) => [row.sourceRowNumber, randomUUID()]),
+    authoritativePreview.rows.map((row) => [
+      row.sourceRowNumber,
+      randomUUID(),
+    ]),
   );
 
-  const totalRows = preview.rows.length;
-  const invalidRows = preview.rows.filter(
+  const totalRows = authoritativePreview.rows.length;
+  const invalidRows = authoritativePreview.rows.filter(
     (row) => row.status === "INVALID",
   ).length;
   const validRows = totalRows - invalidRows;
-  const warningCount = preview.issues.filter(
+  const warningCount = authoritativePreview.issues.filter(
     (issue) => issue.severity === "WARNING",
   ).length;
 
@@ -304,7 +274,9 @@ export async function POST(request: Request): Promise<Response> {
   try {
     await db.$transaction(async (transaction) => {
       const duplicateLockHash = businessContentSha256 ?? sha256;
-      const [lockKeyA, lockKeyB] = advisoryLockKeys(duplicateLockHash);
+      const [lockKeyA, lockKeyB] =
+        advisoryLockKeys(duplicateLockHash);
+
       await transaction.$executeRaw`
         SELECT pg_advisory_xact_lock(
           ${lockKeyA}::integer,
@@ -317,14 +289,18 @@ export async function POST(request: Request): Promise<Response> {
         sha256,
       );
       if (concurrentDuplicate) {
-        throw new ConcurrentExactDuplicateError(concurrentDuplicate);
+        throw new ConcurrentExactDuplicateError(
+          concurrentDuplicate,
+        );
       }
 
       if (businessContentSha256) {
-        const concurrentBusinessDuplicate = await findBusinessDuplicate(
-          transaction,
-          businessContentSha256,
-        );
+        const concurrentBusinessDuplicate =
+          await findBusinessDuplicate(
+            transaction,
+            businessContentSha256,
+          );
+
         if (concurrentBusinessDuplicate) {
           throw new ConcurrentBusinessDuplicateError(
             concurrentBusinessDuplicate,
@@ -352,24 +328,26 @@ export async function POST(request: Request): Promise<Response> {
           id: batchId,
           batchNumber,
           sourceName: safeFileName,
-          schemaName: preview.schemaName,
-          schemaVersion: preview.schemaVersion,
+          schemaName: authoritativePreview.schemaName,
+          schemaVersion: authoritativePreview.schemaVersion,
           rawArtifactId: artifactId,
           fileSha256: sha256,
-          clientPreviewSha256,
           businessContentSha256,
-          columnMapping: asJson(preview.columnMapping),
-          status: "UPLOADED",
+          columnMapping: asJson(
+            authoritativePreview.columnMapping,
+          ),
+          status: "VALIDATED",
           totalRows,
           validRows,
           invalidRows,
           warningCount,
           uploadedById: session.user.id,
+          validatedAt: now,
         },
       });
 
       await transaction.importRow.createMany({
-        data: preview.rows.map((row) => ({
+        data: authoritativePreview.rows.map((row) => ({
           id: rowIds.get(row.sourceRowNumber)!,
           importBatchId: batchId,
           sourceSheet: row.sourceSheet,
@@ -381,9 +359,9 @@ export async function POST(request: Request): Promise<Response> {
         })),
       });
 
-      if (preview.issues.length > 0) {
+      if (authoritativePreview.issues.length > 0) {
         await transaction.importValidationIssue.createMany({
-          data: preview.issues.map((issue) => ({
+          data: authoritativePreview.issues.map((issue) => ({
             id: randomUUID(),
             importBatchId: batchId,
             importRowId: issue.sourceRowNumber
@@ -401,26 +379,42 @@ export async function POST(request: Request): Promise<Response> {
       await transaction.auditEvent.create({
         data: {
           userId: session.user.id,
-          action: "IMPORT_CLIENT_PREVIEW_ACCEPTED",
+          action: "IMPORT_WORKBOOK_VALIDATED",
           entityType: "ImportBatch",
           entityId: batchId,
           metadata: {
             batchNumber,
-            schemaVersion: preview.schemaVersion,
+            schemaVersion: authoritativePreview.schemaVersion,
+            authority: "SERVER_XLSX_PARSE",
+            status: "VALIDATED",
             totalRows,
             validRows,
             invalidRows,
             warningCount,
             fileSha256: sha256,
-            clientPreviewSha256,
             businessContentSha256,
-            verificationPending: true,
+            validatedAt: now.toISOString(),
+          },
+        },
+      });
+
+      await transaction.outboxEvent.create({
+        data: {
+          topic: "ImportBatchValidated",
+          aggregateType: "ImportBatch",
+          aggregateId: batchId,
+          payload: {
+            eventVersion: 1,
+            importBatchId: batchId,
+            occurredAt: now.toISOString(),
           },
         },
       });
     });
   } catch (error) {
-    await removeUnregisteredArtifact(storageKey).catch(() => undefined);
+    await removeUnregisteredArtifact(storageKey).catch(
+      () => undefined,
+    );
 
     if (error instanceof ConcurrentExactDuplicateError) {
       return exactDuplicateResponse(error.duplicate);
@@ -430,12 +424,15 @@ export async function POST(request: Request): Promise<Response> {
       return sameHolidayDataResponse(error.duplicate);
     }
 
-    console.error("ATI PH import staging failed.", error);
+    console.error(
+      "ATI PH authoritative import staging failed.",
+      error,
+    );
 
     return apiError(
       500,
       "IMPORT_STAGING_FAILED",
-      "The workbook could not be staged. No import was created.",
+      "The workbook could not be staged from the authoritative server parse. No import was created.",
     );
   }
 
@@ -444,18 +441,30 @@ export async function POST(request: Request): Promise<Response> {
       batch: {
         id: batchId,
         batchNumber,
-        status: "UPLOADED",
+        status: "VALIDATED",
         totalRows,
         validRows,
         invalidRows,
         warningCount,
-        schemaVersion: preview.schemaVersion,
+        schemaVersion: authoritativePreview.schemaVersion,
       },
-      issues: preview.issues.slice(0, 50),
-      truncatedIssueCount: Math.max(0, preview.issues.length - 50),
-      verificationPending: true,
+      issues: authoritativePreview.issues.slice(0, 50),
+      truncatedIssueCount: Math.max(
+        0,
+        authoritativePreview.issues.length - 50,
+      ),
+      authoritative: true,
     },
-    { status: 202 },
+    { status: 201 },
+  );
+}
+
+function hasBlockingErrors(
+  preview: Awaited<ReturnType<typeof parseHolidayWorkbook>>,
+): boolean {
+  return (
+    preview.rows.some((row) => row.status === "INVALID") ||
+    preview.issues.some((issue) => issue.severity === "ERROR")
   );
 }
 
@@ -467,7 +476,9 @@ function apiError(
   return Response.json({ code, error }, { status });
 }
 
-function exactDuplicateResponse(duplicate: DuplicateImport): Response {
+function exactDuplicateResponse(
+  duplicate: DuplicateImport,
+): Response {
   return Response.json(
     {
       code: "EXACT_FILE_DUPLICATE",
@@ -480,7 +491,9 @@ function exactDuplicateResponse(duplicate: DuplicateImport): Response {
   );
 }
 
-function sameHolidayDataResponse(duplicate: DuplicateImport): Response {
+function sameHolidayDataResponse(
+  duplicate: DuplicateImport,
+): Response {
   return Response.json(
     {
       code: "SAME_HOLIDAY_DATA",
@@ -493,7 +506,10 @@ function sameHolidayDataResponse(duplicate: DuplicateImport): Response {
   );
 }
 
-type ImportBatchLookup = Pick<Prisma.TransactionClient, "importBatch">;
+type ImportBatchLookup = Pick<
+  Prisma.TransactionClient,
+  "importBatch"
+>;
 
 function findExactDuplicate(
   client: ImportBatchLookup,
@@ -518,9 +534,7 @@ function findBusinessDuplicate(
   return client.importBatch.findFirst({
     where: {
       businessContentSha256,
-      status: {
-        in: ["UPLOADED", "VERIFYING", "VALIDATED"],
-      },
+      status: "VALIDATED",
     },
     orderBy: { uploadedAt: "desc" },
     select: {
@@ -540,7 +554,9 @@ function advisoryLockKeys(sha256: string): [number, number] {
 }
 
 function asJson(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  return JSON.parse(
+    JSON.stringify(value),
+  ) as Prisma.InputJsonValue;
 }
 
 function sanitizeFileName(value: string): string {
@@ -552,13 +568,19 @@ function sanitizeFileName(value: string): string {
   return (baseName || "holiday-import.xlsx").slice(0, 200);
 }
 
-function storageKeyFor(date: Date, artifactId: string): string {
+function storageKeyFor(
+  date: Date,
+  artifactId: string,
+): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   return `raw-imports/${year}/${month}/${artifactId}.xlsx`;
 }
 
 function makeBatchNumber(date: Date): string {
-  const day = date.toISOString().slice(0, 10).replaceAll("-", "");
+  const day = date
+    .toISOString()
+    .slice(0, 10)
+    .replaceAll("-", "");
   return `PH-${day}-${randomBytes(4).toString("hex").toUpperCase()}`;
 }

@@ -78,7 +78,7 @@ export async function POST(
             invalidRows: true,
             submittedAt: true,
             publishedAt: true,
-            verifiedAt: true,
+            validatedAt: true,
             rows: {
               orderBy: [
                 { sourceSheet: "asc" },
@@ -151,9 +151,9 @@ export async function POST(
           };
         }
 
-        if (batch.status !== "VALIDATED" || !batch.verifiedAt) {
+        if (batch.status !== "VALIDATED" || !batch.validatedAt) {
           throw new PublicationError(
-            "Batch must complete authoritative workbook verification before publication.",
+            "Batch must complete authoritative server validation before publication.",
             409,
           );
         }

@@ -31,7 +31,6 @@ type ImportResult = {
   };
   issues: ParsedHolidayWorkbook["issues"];
   truncatedIssueCount: number;
-  verificationPending: boolean;
 };
 
 type PreviewAlias = {
@@ -161,7 +160,6 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
 
     const formData = new FormData();
     formData.set("file", file);
-    formData.set("preview", JSON.stringify(preview));
 
     // FUTURE: controlled exact-duplicate reprocessing must be a governed/admin flow
     // if (confirmDuplicate) {
@@ -221,8 +219,9 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
           <p className="eyebrow">Governed import</p>
           <h2 id="import-heading">Preview a public-holiday workbook</h2>
           <p>
-            The browser parses and normalizes Holiday_Master first. Nothing
-            is sent to ATI PH until you confirm the preview.
+            The browser preview is a local UX preflight. On submit, only
+            the untouched XLSX is sent; ATI PH reparses and validates it
+            authoritatively on the server.
           </p>
         </div>
 
@@ -415,9 +414,10 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
             ) : null}
 
             <p className="result-footnote">
-              After submission the raw XLSX is stored immutably. The worker
-              reparses it server-side and compares a SHA-256 preview
-              fingerprint before the batch can become authoritative.
+              Local preview data is never persisted as authority. On
+              submission ATI PH sends only the raw XLSX, parses it once on the
+              server, and persists rows and issues from that authoritative
+              result.
             </p>
           </div>
         ) : null}
@@ -427,17 +427,17 @@ async function submit(event: React.FormEvent<HTMLFormElement>) {
             <div className="import-result__heading">
               <div>
                 <p className="micro-label">{result.batch.batchNumber}</p>
-                <h3>Server verification queued</h3>
+                <h3>Authoritative validation complete</h3>
               </div>
-              <span className="ati-badge ati-badge--warning">
+              <span className="ati-badge ati-badge--success">
                 {result.batch.status}
               </span>
             </div>
 
             <p className="result-footnote">
-              Submission is persisted, but the client preview is not
-              authoritative. Approval remains blocked until the worker
-              verifies the stored raw workbook.
+              The accepted batch was created from the authoritative server
+              parse. Raw evidence is immutable and approval can operate on the
+              persisted validated staging state.
             </p>
           </div>
         ) : null}

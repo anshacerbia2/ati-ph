@@ -50,8 +50,7 @@ export default async function ImportBatchPage({
       validRows: true,
       invalidRows: true,
       warningCount: true,
-      verificationStartedAt: true,
-      verifiedAt: true,
+      validatedAt: true,
       failureReason: true,
       submittedAt: true,
       publishedAt: true,
@@ -322,9 +321,7 @@ export default async function ImportBatchPage({
           ...batch,
           submittedAt: batch.submittedAt?.toISOString() ?? null,
           publishedAt: batch.publishedAt?.toISOString() ?? null,
-          verificationStartedAt:
-            batch.verificationStartedAt?.toISOString() ?? null,
-          verifiedAt: batch.verifiedAt?.toISOString() ?? null,
+          validatedAt: batch.validatedAt?.toISOString() ?? null,
           uploadedAt: batch.uploadedAt.toISOString(),
           frozen: Boolean(
             batch.submittedAt || batch.publishedAt,
