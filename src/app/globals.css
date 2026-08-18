@@ -2982,3 +2982,160 @@ tbody tr:hover { background: var(--ati-gray-50); }
 @media(max-width:900px){.notification-policy-form{grid-template-columns:repeat(2,minmax(0,1fr))}.notification-policy-form__reason{grid-column:1/-1}.notification-policy-facts,.matching-result__facts{grid-template-columns:repeat(2,minmax(0,1fr))}.matching-preview__metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:680px){.notification-registry__topbar,.notification-pagination,.matching-preview__header{align-items:stretch;flex-direction:column}.notification-search{display:grid;grid-template-columns:1fr 1fr}.notification-search label{grid-column:1/-1;width:100%}.notification-policy-card__summary,.notification-occurrence-card{grid-template-columns:1fr}.notification-policy-card__status{justify-content:flex-start;flex-wrap:wrap}.notification-policy-form,.notification-policy-facts,.matching-result__facts,.matching-preview__metrics{grid-template-columns:1fr}.notification-policy-form__wide,.notification-policy-form__reason{grid-column:auto}.notification-policy-form__footer{align-items:stretch;flex-direction:column}}
 /* END phase2-notification-policy-matching */
+
+/* BEGIN notification-planning-modal-preview */
+.matching-preview-modal{
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  display:grid;
+  place-items:center;
+  padding:2rem;
+  background:rgb(16 30 54 / 54%);
+  backdrop-filter:blur(4px);
+  animation:matching-modal-fade 140ms ease-out;
+}
+
+.matching-preview-modal__panel{
+  display:grid;
+  width:min(1120px,100%);
+  max-height:calc(100vh - 4rem);
+  overflow:hidden;
+  border:1px solid var(--ati-blue-100);
+  border-radius:1rem;
+  background:var(--ati-white);
+  box-shadow:0 24px 70px rgb(16 30 54 / 24%);
+  animation:matching-modal-enter 170ms ease-out;
+}
+
+.matching-preview-modal__bar{
+  display:flex;
+  min-height:4.25rem;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  padding:.8rem 1rem .8rem 1.2rem;
+  border-bottom:1px solid var(--border-subtle);
+  background:rgb(255 255 255 / 96%);
+}
+
+.matching-preview-modal__bar>div{
+  display:grid;
+  min-width:0;
+  gap:.12rem;
+}
+
+.matching-preview-modal__bar span{
+  color:var(--ati-blue);
+  font-size:.68rem;
+  font-weight:850;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.matching-preview-modal__bar strong{
+  overflow:hidden;
+  color:var(--text-strong);
+  font-size:var(--fs-sm);
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.matching-preview-modal__close{
+  display:inline-grid;
+  width:2.25rem;
+  height:2.25rem;
+  flex:0 0 auto;
+  place-items:center;
+  border:1px solid var(--border-subtle);
+  border-radius:.58rem;
+  background:var(--ati-white);
+  color:var(--text-muted);
+  cursor:pointer;
+  font:inherit;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
+}
+
+.matching-preview-modal__close span{
+  margin-top:-.08rem;
+  color:inherit;
+  font-size:1.45rem;
+  font-weight:400;
+  letter-spacing:0;
+  line-height:1;
+  text-transform:none;
+}
+
+.matching-preview-modal__close:hover{
+  border-color:var(--ati-blue-100);
+  background:var(--ati-blue-50);
+  color:var(--ati-blue-deep);
+}
+
+.matching-preview-modal__close:active{
+  transform:scale(.96);
+}
+
+.matching-preview-modal__content{
+  overflow:auto;
+  overscroll-behavior:contain;
+  padding:1rem;
+  background:var(--ati-gray-50);
+}
+
+.matching-preview-modal .matching-preview{
+  margin:0;
+  padding:1rem;
+  border:1px solid var(--border-subtle);
+  border-radius:.78rem;
+  background:linear-gradient(180deg,var(--ati-white),var(--ati-blue-50));
+}
+
+@keyframes matching-modal-fade{
+  from{opacity:0}
+  to{opacity:1}
+}
+
+@keyframes matching-modal-enter{
+  from{
+    opacity:0;
+    transform:translateY(10px) scale(.985);
+  }
+  to{
+    opacity:1;
+    transform:translateY(0) scale(1);
+  }
+}
+
+@media(max-width:760px){
+  .matching-preview-modal{
+    align-items:end;
+    padding:.75rem;
+  }
+
+  .matching-preview-modal__panel{
+    width:100%;
+    max-height:calc(100vh - 1.5rem);
+    border-radius:.9rem;
+  }
+
+  .matching-preview-modal__content{
+    padding:.7rem;
+  }
+
+  .matching-preview-modal .matching-preview{
+    padding:.8rem;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .matching-preview-modal,
+  .matching-preview-modal__panel{
+    animation:none;
+  }
+}
+/* END notification-planning-modal-preview */

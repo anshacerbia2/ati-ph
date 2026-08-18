@@ -160,6 +160,25 @@ export function NotificationPlanning() {
     }
   }
 
+  useEffect(() => {
+    if (!preview) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPreview(undefined);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [preview]);
+
   return (
     <section className="ati-card notification-planning">
       <div className="notification-registry__topbar">
@@ -205,9 +224,60 @@ export function NotificationPlanning() {
         </div>
       )}
 
-      <NotificationPagination pagination={pagination} loading={loading} goToPage={goToPage} />
-      {preview ? <MatchingPreview preview={preview} /> : null}
+      <NotificationPagination
+        pagination={pagination}
+        loading={loading}
+        goToPage={goToPage}
+      />
+
+      {preview ? (
+        <MatchingPreviewModal
+          onClose={() => setPreview(undefined)}
+          preview={preview}
+        />
+      ) : null}
     </section>
+  );
+}
+
+function MatchingPreviewModal({
+  preview,
+  onClose,
+}: {
+  preview: Preview;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      aria-label={`Matching preview for ${preview.occurrence.holidayName}`}
+      aria-modal="true"
+      className="matching-preview-modal"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      role="dialog"
+    >
+      <div className="matching-preview-modal__panel">
+        <div className="matching-preview-modal__bar">
+          <div>
+            <span>Shadow matching preview</span>
+            <strong>{preview.occurrence.holidayName}</strong>
+          </div>
+          <button
+            aria-label="Close matching preview"
+            className="matching-preview-modal__close"
+            onClick={onClose}
+            type="button"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+
+        <div className="matching-preview-modal__content">
+          <MatchingPreview preview={preview} />
+        </div>
+      </div>
+    </div>
   );
 }
 
