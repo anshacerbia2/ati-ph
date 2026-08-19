@@ -343,11 +343,17 @@ async function seedClientMasterRouting(): Promise<void> {
         data: {
           serviceTeamId: team.id,
           calendarRegionId: region.id,
+          legacyClientMasterTag: record.dayFilter,
           effectiveFrom: null,
           effectiveTo: null,
           isActive,
         },
         select: { id: true },
+      });
+    } else {
+      await db.clientSubscription.update({
+        where: { id: subscription.id },
+        data: { legacyClientMasterTag: record.dayFilter },
       });
     }
 
@@ -369,7 +375,7 @@ async function seedClientMasterRouting(): Promise<void> {
         data: {
           notificationPolicyId: policy.id,
           version: 1,
-          holidayDayFilter: record.dayFilter === "Weekdays" ? "WEEKDAY" : "WEEKEND",
+          holidayDayFilter: "ALL",
           leadTimeValue: null,
           leadTimeMode: null,
           sendTimeLocal: null,
@@ -380,7 +386,8 @@ async function seedClientMasterRouting(): Promise<void> {
           automaticSendAllowed: false,
           retryCeiling: null,
           isActive: true,
-          changeReason: "Migrated from Client_Master.Tag",
+          changeReason:
+            `Client_Master.Tag=${record.dayFilter} preserved as legacy evidence; semantics unconfirmed and not used as matching authority.`,
         },
       });
     }

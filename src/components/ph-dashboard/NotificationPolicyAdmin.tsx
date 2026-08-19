@@ -25,6 +25,12 @@ type PolicyVersion = {
   scheduleIssues: string[];
 };
 
+type DeliveryRecipient = {
+  contactId: string;
+  displayName: string | null;
+  email: string;
+};
+
 type Policy = {
   id: string;
   isActive: boolean;
@@ -35,6 +41,11 @@ type Policy = {
     isActive: boolean;
     effectiveFrom: string | null;
     effectiveTo: string | null;
+    legacyClientMasterTag: string | null;
+  };
+  deliveryRouting: {
+    to: DeliveryRecipient[];
+    cc: DeliveryRecipient[];
   };
   calendarRegion: { id: string; code: string; displayName: string; isActive: boolean };
   versionCount: number;
@@ -177,7 +188,7 @@ export function NotificationPolicyAdmin({ canManage }: { canManage: boolean }) {
             <span>Search policies</span>
             <input
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Client, team, or region"
+              placeholder="Client or region"
               type="search"
               value={searchInput}
             />
@@ -196,7 +207,7 @@ export function NotificationPolicyAdmin({ canManage }: { canManage: boolean }) {
 
       <div className="notification-boundary-note">
         <strong>Shadow-mode boundary</strong>
-        <span>Automatic send is hard-disabled. Missing scheduling decisions stay unconfigured instead of being guessed.</span>
+        <span>Client PIC Email maps to TO and Client_Master.CC maps to CC. Automatic send stays hard-disabled while scheduling decisions remain unconfirmed.</span>
       </div>
 
       {error ? <p className="form-notice form-notice--error">{error}</p> : null}
@@ -276,7 +287,12 @@ function PolicyCard({
       <div className="notification-policy-card__summary">
         <div className="notification-policy-card__identity">
           <strong>{policy.client.name}</strong>
-          <span>{policy.calendarRegion.code} · {policy.serviceTeam.name}</span>
+          <span>
+            {policy.calendarRegion.displayName}
+            {policy.subscription.legacyClientMasterTag
+              ? ` · Client_Master Tag: ${policy.subscription.legacyClientMasterTag}`
+              : ""}
+          </span>
         </div>
         <div className="notification-policy-card__status">
           {current ? (
@@ -299,6 +315,25 @@ function PolicyCard({
 
       {expanded ? (
         <div className="notification-policy-card__body">
+          <div className="notification-policy-source-note">
+            <strong>Client_Master routing</strong>
+            <span>
+              The legacy Tag is preserved as source evidence only. It does not
+              filter holiday matching until its business meaning is confirmed.
+            </span>
+          </div>
+
+          <div className="notification-delivery-routing">
+            <PolicyRecipientGroup
+              label="Client PIC Email (TO)"
+              recipients={policy.deliveryRouting.to}
+            />
+            <PolicyRecipientGroup
+              label="CC"
+              recipients={policy.deliveryRouting.cc}
+            />
+          </div>
+
           <div className="notification-policy-facts">
             <PolicyFact label="Effective subscription" value={`${policy.subscription.effectiveFrom ?? "Open"} → ${policy.subscription.effectiveTo ?? "Open"}`} />
             <PolicyFact label="Lead time" value={current?.leadTimeValue !== null && current?.leadTimeValue !== undefined && current.leadTimeMode ? `${current.leadTimeValue} ${current.leadTimeMode}` : "Not configured"} />
@@ -324,7 +359,7 @@ function PolicyCard({
 
           {canManage && editing ? (
             <form className="notification-policy-form" onSubmit={save}>
-              <Field label="Holiday day filter">
+              <Field label="Confirmed holiday date filter">
                 <select onChange={(event) => setDayFilter(event.target.value as typeof dayFilter)} value={dayFilter}>
                   <option value="WEEKDAY">Weekday</option><option value="WEEKEND">Weekend</option><option value="ALL">All days</option>
                 </select>
@@ -383,6 +418,35 @@ function Field({ label, wide = false, children }: { label: string; wide?: boolea
 
 function PolicyFact({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function PolicyRecipientGroup({
+  label,
+  recipients,
+}: {
+  label: string;
+  recipients: DeliveryRecipient[];
+}) {
+  return (
+    <div className="notification-delivery-row">
+      <strong>{label}</strong>
+      <div>
+        {recipients.length ? (
+          recipients.map((recipient) => (
+            <span
+              className="notification-delivery-chip"
+              key={recipient.contactId}
+              title={recipient.email}
+            >
+              {recipient.displayName || recipient.email}
+            </span>
+          ))
+        ) : (
+          <span className="notification-delivery-empty">No active recipient</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function NotificationPagination({ pagination, loading, goToPage }: { pagination: Pagination; loading: boolean; goToPage: (page: number) => void }) {

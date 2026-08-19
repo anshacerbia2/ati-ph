@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { mountedPath } from "@/config/app";
 
@@ -30,6 +31,7 @@ type PreviewResult = {
   subscriptionId: string;
   clientName: string;
   serviceTeamName: string;
+  legacyClientMasterTag: string | null;
   calendarRegion: { id: string; code: string; displayName: string };
   status: "MATCHED" | "EXCLUDED" | "EXCEPTION";
   code: string;
@@ -247,7 +249,7 @@ function MatchingPreviewModal({
   preview: Preview;
   onClose: () => void;
 }) {
-  return (
+  return createPortal(
     <div
       aria-label={`Matching preview for ${preview.occurrence.holidayName}`}
       aria-modal="true"
@@ -277,7 +279,8 @@ function MatchingPreviewModal({
           <MatchingPreview preview={preview} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -312,10 +315,19 @@ function MatchingPreview({ preview }: { preview: Preview }) {
         ) : preview.results.map((result) => (
           <article className={`matching-result matching-result--${result.status.toLowerCase()}`} key={result.subscriptionId}>
             <div className="matching-result__top">
-              <div><strong>{result.clientName}</strong><span>{result.calendarRegion.code} · {result.serviceTeamName}</span></div>
+              <div>
+                <strong>{result.clientName}</strong>
+                <span>{result.calendarRegion.displayName}</span>
+              </div>
               <span className={result.status === "MATCHED" ? "ati-badge ati-badge--success" : result.status === "EXCEPTION" ? "ati-badge ati-badge--warning" : "ati-badge"}>{result.status}</span>
             </div>
             <p>{result.reason}</p>
+            {result.legacyClientMasterTag ? (
+              <div className="matching-result__legacy-tag">
+                <strong>Client_Master Tag</strong>
+                <span>{result.legacyClientMasterTag} · evidence only, not matching authority</span>
+              </div>
+            ) : null}
             <div className="matching-result__facts">
               <Fact label="Rule" value={humanize(result.code)} />
               <Fact label="Dates" value={result.matchingDates.length ? result.matchingDates.join(", ") : "None"} />
@@ -323,7 +335,7 @@ function MatchingPreview({ preview }: { preview: Preview }) {
               <Fact label="Schedule" value={result.policy?.scheduleReady ? "Configured" : "Incomplete"} />
             </div>
             {result.policy?.scheduleIssues.length ? <div className="matching-result__issues">{result.policy.scheduleIssues.map((issue) => <span key={issue}>{humanize(issue)}</span>)}</div> : null}
-            <RecipientGroup label="TO" recipients={result.to} />
+            <RecipientGroup label="Client PIC Email (TO)" recipients={result.to} />
             <RecipientGroup label="CC" recipients={result.cc} />
           </article>
         ))}

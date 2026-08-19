@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import {
   effectiveWindowsOverlap,
+  isSafeTestRecipientEmail,
   normalizeClientName,
   normalizeContactEmail,
   normalizeServiceTeamName,
@@ -89,7 +90,15 @@ const clientConfigurationInclude = {
 } satisfies Prisma.ClientInclude;
 
 const nameSchema = z.string().trim().min(1).max(200);
-const emailSchema = z.string().trim().email().max(320);
+const emailSchema = z
+  .string()
+  .trim()
+  .email()
+  .max(320)
+  .refine(
+    isSafeTestRecipientEmail,
+    "Recipient email must use @dummy.test while notification delivery is in shadow/testing mode.",
+  );
 const uuidSchema = z.string().uuid();
 const dateSchema = z.union([
   z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),

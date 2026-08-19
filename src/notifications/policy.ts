@@ -101,6 +101,18 @@ export async function listNotificationPolicies(query: NotificationListQuery) {
               client: { select: { id: true, name: true, isActive: true } },
             },
           },
+          recipients: {
+            include: {
+              contact: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  email: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
         },
       },
       versions: { orderBy: { version: "desc" }, take: 10 },
@@ -117,6 +129,17 @@ export async function listNotificationPolicies(query: NotificationListQuery) {
   return {
     policies: policies.map((policy) => {
       const currentVersion = policy.versions.find((version) => version.isActive) ?? null;
+      const activeRecipients = policy.subscription.recipients
+        .filter((recipient) => recipient.isActive && recipient.contact.isActive)
+        .sort((left, right) => left.contact.email.localeCompare(right.contact.email));
+      const recipientView = (
+        recipient: (typeof activeRecipients)[number],
+      ) => ({
+        contactId: recipient.contact.id,
+        displayName: recipient.contact.displayName,
+        email: recipient.contact.email,
+      });
+
       return {
         id: policy.id,
         isActive: policy.isActive,
@@ -131,6 +154,15 @@ export async function listNotificationPolicies(query: NotificationListQuery) {
           isActive: policy.subscription.isActive,
           effectiveFrom: dateKey(policy.subscription.effectiveFrom),
           effectiveTo: dateKey(policy.subscription.effectiveTo),
+          legacyClientMasterTag: policy.subscription.legacyClientMasterTag,
+        },
+        deliveryRouting: {
+          to: activeRecipients
+            .filter((recipient) => recipient.recipientType === "TO")
+            .map(recipientView),
+          cc: activeRecipients
+            .filter((recipient) => recipient.recipientType === "CC")
+            .map(recipientView),
         },
         calendarRegion: policy.subscription.calendarRegion,
         versionCount: policy._count.versions,

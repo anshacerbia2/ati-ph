@@ -43,6 +43,7 @@ describe("Client_Master routing bootstrap fixture", () => {
 
       for (const email of [...to, ...cc]) {
         expect(email).toMatch(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+        expect(email.endsWith("@dummy.test")).toBe(true);
         pairs.add(`${row.clientName.trim().toLowerCase()}::${email}`);
         assignments += 1;
       }

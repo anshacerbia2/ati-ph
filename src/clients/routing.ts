@@ -12,8 +12,16 @@ export function normalizeServiceTeamName(value: string): string {
   return normalizeHumanKey(value);
 }
 
+export const SAFE_TEST_RECIPIENT_DOMAIN = "dummy.test";
+
 export function normalizeContactEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function isSafeTestRecipientEmail(value: string): boolean {
+  return normalizeContactEmail(value).endsWith(
+    `@${SAFE_TEST_RECIPIENT_DOMAIN}`,
+  );
 }
 
 export function validateEffectiveWindow(input: {

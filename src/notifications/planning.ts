@@ -178,6 +178,7 @@ export async function previewOccurrenceMatching(occurrenceId: string) {
 
     return {
       ...result,
+      legacyClientMasterTag: subscription.legacyClientMasterTag,
       calendarRegion: {
         id: subscription.calendarRegion.id,
         code: subscription.calendarRegion.code,
