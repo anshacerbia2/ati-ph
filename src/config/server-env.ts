@@ -32,6 +32,46 @@ const serverEnvSchema = z.object({
     .min(1)
     .max(500)
     .default(100),
+  EMAIL_DELIVERY_MODE: z.enum(["DISABLED", "STREAM", "SMTP"]).default("DISABLED"),
+  EMAIL_SENDER_IDENTITY_CODE: z.string().min(1).default("PH_NOTIFICATION"),
+  EMAIL_FROM_ADDRESS: z.email().optional(),
+  EMAIL_FROM_NAME: z.string().min(1).default("ATI Business Group"),
+  EMAIL_REPLY_TO: z.email().optional(),
+  EMAIL_TRANSPORT_CODE: z.string().min(1).default("ATI_PRIMARY"),
+  EMAIL_SMTP_HOST: z.string().min(1).optional(),
+  EMAIL_SMTP_PORT: z.coerce.number().int().min(1).max(65_535).default(587),
+  EMAIL_SMTP_SECURE: z.enum(["true", "false"]).default("false"),
+  EMAIL_SMTP_REQUIRE_TLS: z.enum(["true", "false"]).default("true"),
+  EMAIL_SMTP_USER: z.string().min(1).optional(),
+  EMAIL_SMTP_PASSWORD: z.string().min(1).optional(),
+  EMAIL_SMTP_CONNECTION_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(120_000)
+    .default(10_000),
+}).superRefine((env, ctx) => {
+  if (env.EMAIL_DELIVERY_MODE !== "DISABLED" && !env.EMAIL_FROM_ADDRESS) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EMAIL_FROM_ADDRESS"],
+      message: "EMAIL_FROM_ADDRESS is required when email delivery is enabled",
+    });
+  }
+  if (env.EMAIL_DELIVERY_MODE === "SMTP" && !env.EMAIL_SMTP_HOST) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EMAIL_SMTP_HOST"],
+      message: "EMAIL_SMTP_HOST is required when EMAIL_DELIVERY_MODE=SMTP",
+    });
+  }
+  if (Boolean(env.EMAIL_SMTP_USER) !== Boolean(env.EMAIL_SMTP_PASSWORD)) {
+    ctx.addIssue({
+      code: "custom",
+      path: [env.EMAIL_SMTP_USER ? "EMAIL_SMTP_PASSWORD" : "EMAIL_SMTP_USER"],
+      message: "EMAIL_SMTP_USER and EMAIL_SMTP_PASSWORD must be configured together",
+    });
+  }
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
