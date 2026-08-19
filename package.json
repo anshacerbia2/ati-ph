@@ -18,7 +18,8 @@
     "authz:grant": "tsx scripts/grant-role.ts",
     "verify:fast": "npm run typecheck && npm test && npm run lint",
     "verify": "npm run verify:fast && npm run build",
-    "email:smtp:test": "node --env-file=.env --import tsx scripts/email-smtp-test.ts"
+    "email:smtp:test": "node --env-file=.env --import tsx scripts/email-smtp-test.ts",
+    "notification:smtp:pilot": "node --env-file=.env --import tsx scripts/notification-smtp-pilot.ts"
   },
   "engines": {
     "node": ">=20.19.0"

@@ -456,3 +456,38 @@ git diff --check
 Attributes such as `bis_skin_checked`, `bis_register`, and `processed_<uuid>` can be injected by browser extensions before React hydrates.
 
 Disable the extension for localhost when validating hydration. These attributes are not emitted by ATI PH.
+
+## Controlled NotificationJob SMTP pilot
+
+After the generic SMTP connectivity test succeeds, the next release gate is a controlled business-content pilot.
+
+The pilot:
+
+- reads one existing `NotificationJob`
+- requires the job to be `PLANNED` or `DUE`
+- uses the exact frozen governed email content and SHA-256 snapshot
+- overrides TO to one configured same-domain internal recipient
+- clears CC/BCC
+- uses a pilot-specific deterministic Message-ID/idempotency key
+- does not claim the job
+- does not create a delivery attempt
+- does not mutate the durable job state
+- does not enable worker SMTP execution
+
+Example:
+
+```env
+EMAIL_DELIVERY_MODE=SMTP
+EMAIL_SMTP_PILOT_ENABLED=true
+EMAIL_SMTP_PILOT_RECIPIENT=your.name@atibusinessgroup.com
+```
+
+Then:
+
+```cmd
+npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
+```
+
+The command fails closed unless the pilot recipient uses the same domain as `EMAIL_FROM_ADDRESS`.
+
+Automatic SMTP execution by the worker remains a separate production release gate.
