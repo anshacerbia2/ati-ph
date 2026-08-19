@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   NOTIFICATION_POLICY_READ: "notification_policy.read",
   NOTIFICATION_POLICY_MANAGE: "notification_policy.manage",
   NOTIFICATION_PLAN_READ: "notification_plan.read",
+  NOTIFICATION_PLAN_COMMIT: "notification_plan.commit",
 } as const;
 
 export type PermissionCode =
@@ -90,7 +91,13 @@ export const SYSTEM_PERMISSIONS = [
   {
     code: PERMISSIONS.NOTIFICATION_PLAN_READ,
     name: "Read notification planning",
-    description: "Run read-only explainable shadow matching previews",
+    description: "Run explainable notification-plan previews",
+  },
+  {
+    code: PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
+    name: "Commit notification plans",
+    description:
+      "Commit a ready notification plan into immutable durable notification jobs",
   },
 ] as const;
 
@@ -109,6 +116,7 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.NOTIFICATION_POLICY_READ,
     PERMISSIONS.NOTIFICATION_POLICY_MANAGE,
     PERMISSIONS.NOTIFICATION_PLAN_READ,
+    PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
   ],
   OPERATOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
@@ -117,6 +125,7 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.CLIENT_READ,
     PERMISSIONS.NOTIFICATION_POLICY_READ,
     PERMISSIONS.NOTIFICATION_PLAN_READ,
+    PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
   ],
   APPROVER: [
     PERMISSIONS.CALENDAR_REGION_READ,

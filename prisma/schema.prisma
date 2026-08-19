@@ -117,24 +117,34 @@ enum NotificationScheduleSource {
   @@schema("notification")
 }
 
+enum NotificationJobStatus {
+  WAITING_APPROVAL
+  PLANNED
+  DUE
+  CANCELLED
+
+  @@schema("notification")
+}
+
 model User {
-  id                   String                  @id @default(uuid()) @db.Uuid
-  externalSubject      String                  @unique @db.VarChar(191)
-  email                String                  @unique @db.VarChar(320)
-  displayName          String?                 @db.VarChar(255)
-  isActive             Boolean                 @default(true)
-  createdAt            DateTime                @default(now())
-  updatedAt            DateTime                @updatedAt
-  sessions             AuthSession[]
-  auditEvents          AuditEvent[]
-  artifacts            FileArtifact[]          @relation("ArtifactCreator")
-  imports              ImportBatch[]           @relation("ImportUploader")
-  editedRows           ImportRow[]             @relation("ImportRowEditor")
-  acknowledgedIssues   ImportValidationIssue[] @relation("IssueAcknowledger")
-  roleAssignments      UserRoleAssignment[]
-  requestedApprovals   ApprovalRequest[]       @relation("ApprovalRequester")
-  decidedApprovals     ApprovalRequest[]       @relation("ApprovalDecider")
-  publishedOccurrences HolidayOccurrence[]     @relation("OccurrencePublisher")
+  id                        String                  @id @default(uuid()) @db.Uuid
+  externalSubject           String                  @unique @db.VarChar(191)
+  email                     String                  @unique @db.VarChar(320)
+  displayName               String?                 @db.VarChar(255)
+  isActive                  Boolean                 @default(true)
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  sessions                  AuthSession[]
+  auditEvents               AuditEvent[]
+  artifacts                 FileArtifact[]          @relation("ArtifactCreator")
+  imports                   ImportBatch[]           @relation("ImportUploader")
+  editedRows                ImportRow[]             @relation("ImportRowEditor")
+  acknowledgedIssues        ImportValidationIssue[] @relation("IssueAcknowledger")
+  roleAssignments           UserRoleAssignment[]
+  requestedApprovals        ApprovalRequest[]       @relation("ApprovalRequester")
+  decidedApprovals          ApprovalRequest[]       @relation("ApprovalDecider")
+  publishedOccurrences      HolidayOccurrence[]     @relation("OccurrencePublisher")
+  committedNotificationJobs NotificationJob[]       @relation("NotificationJobCommitter")
 
   @@index([isActive])
   @@map("users")
@@ -278,6 +288,7 @@ model HolidayOccurrence {
   supersededBy            HolidayOccurrence?        @relation("HolidayOccurrenceRevision")
   regions                 HolidayOccurrenceRegion[]
   dates                   HolidayOccurrenceDate[]
+  notificationJobs        NotificationJob[]
 
   @@index([sourceImportBatchId, publishedAt])
   @@index([calendarYear, startDate])
@@ -542,6 +553,7 @@ model ClientSubscription {
   calendarRegion        CalendarRegion          @relation(fields: [calendarRegionId], references: [id], onDelete: Restrict)
   recipients            SubscriptionRecipient[]
   notificationPolicy    NotificationPolicy?
+  notificationJobs      NotificationJob[]
 
   @@index([serviceTeamId, calendarRegionId])
   @@index([calendarRegionId, isActive])
@@ -595,6 +607,7 @@ model NotificationSchedulePolicyVersion {
   changeReason                 String?                            @db.VarChar(500)
   createdAt                    DateTime                           @default(now())
   policy                       NotificationSchedulePolicy         @relation(fields: [notificationSchedulePolicyId], references: [id], onDelete: Restrict, map: "notification_schedule_policy_versions_policy_fkey")
+  notificationJobs             NotificationJob[]
 
   @@unique([notificationSchedulePolicyId, version], map: "notification_schedule_policy_versions_policy_version_key")
   @@index([notificationSchedulePolicyId, isActive], map: "notification_schedule_policy_versions_policy_active_idx")
@@ -635,10 +648,50 @@ model NotificationPolicyVersion {
   changeReason           String?                            @db.VarChar(500)
   createdAt              DateTime                           @default(now())
   policy                 NotificationPolicy                 @relation(fields: [notificationPolicyId], references: [id], onDelete: Restrict)
+  notificationJobs       NotificationJob[]
 
   @@unique([notificationPolicyId, version])
   @@index([notificationPolicyId, isActive])
   @@map("notification_policy_versions")
+  @@schema("notification")
+}
+
+model NotificationJob {
+  id                                  String                             @id @default(uuid()) @db.Uuid
+  idempotencyKey                      String                             @unique(map: "notification_jobs_idempotency_key_key") @db.Char(64)
+  holidayOccurrenceId                 String                             @db.Uuid
+  clientSubscriptionId                String                             @db.Uuid
+  notificationPolicyVersionId         String                             @db.Uuid
+  notificationSchedulePolicyVersionId String?                            @db.Uuid
+  scheduleSource                      NotificationScheduleSource
+  scheduleSourceVersion               Int
+  targetHolidayDate                   DateTime                           @db.Date
+  plannedLocalDate                    DateTime                           @db.Date
+  plannedLocalTime                    String                             @db.VarChar(5)
+  timezone                            String                             @db.VarChar(100)
+  scheduledAt                         DateTime                           @db.Timestamptz(3)
+  approvalMode                        NotificationApprovalMode
+  status                              NotificationJobStatus
+  recipientSnapshot                   Json
+  ruleSnapshot                        Json
+  automaticSendAllowed                Boolean                            @default(false)
+  retryCeiling                        Int?
+  dueAt                               DateTime?                          @db.Timestamptz(3)
+  committedById                       String                             @db.Uuid
+  createdAt                           DateTime                           @default(now()) @db.Timestamptz(3)
+  updatedAt                           DateTime                           @updatedAt @db.Timestamptz(3)
+  occurrence                          HolidayOccurrence                  @relation(fields: [holidayOccurrenceId], references: [id], onDelete: Restrict, map: "notification_jobs_occurrence_fkey")
+  subscription                        ClientSubscription                 @relation(fields: [clientSubscriptionId], references: [id], onDelete: Restrict, map: "notification_jobs_subscription_fkey")
+  notificationPolicyVersion           NotificationPolicyVersion          @relation(fields: [notificationPolicyVersionId], references: [id], onDelete: Restrict, map: "notification_jobs_policy_version_fkey")
+  notificationSchedulePolicyVersion   NotificationSchedulePolicyVersion? @relation(fields: [notificationSchedulePolicyVersionId], references: [id], onDelete: Restrict, map: "notification_jobs_schedule_version_fkey")
+  committedBy                         User                               @relation("NotificationJobCommitter", fields: [committedById], references: [id], onDelete: Restrict, map: "notification_jobs_committed_by_fkey")
+
+  @@index([status, scheduledAt], map: "notification_jobs_status_scheduled_at_idx")
+  @@index([holidayOccurrenceId, createdAt], map: "notification_jobs_occurrence_created_at_idx")
+  @@index([clientSubscriptionId, scheduledAt], map: "notification_jobs_subscription_scheduled_at_idx")
+  @@index([notificationPolicyVersionId], map: "notification_jobs_policy_version_idx")
+  @@index([notificationSchedulePolicyVersionId], map: "notification_jobs_schedule_version_idx")
+  @@map("notification_jobs")
   @@schema("notification")
 }
 

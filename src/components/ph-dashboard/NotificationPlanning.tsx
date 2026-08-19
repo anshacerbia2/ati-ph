@@ -13,6 +13,7 @@ type Occurrence = {
   startDate: string;
   endDate: string;
   calendarYear: number;
+  notificationCommittedAt: string | null;
   regions: Array<{ id: string; code: string; displayName: string }>;
 };
 
@@ -95,18 +96,40 @@ type Preview = {
   };
   summary: { candidates: number; matched: number; excluded: number; exceptions: number; scheduleReady: number };
   results: PreviewResult[];
+  commit:
+    | {
+        state: "COMMITTED";
+        committedAt: string;
+        reasons: [];
+      }
+    | {
+        state: "READY";
+        committedAt: null;
+        reasons: [];
+      }
+    | {
+        state: "BLOCKED";
+        committedAt: null;
+        reasons: string[];
+      };
   mode: "SHADOW_MATCHING_AND_SCHEDULING";
   error?: string;
 };
 
 const EMPTY_PAGINATION: Pagination = { page: 1, pageSize: PAGE_SIZE, pageCount: 1, total: 0, from: 0, to: 0 };
 
-export function NotificationPlanning() {
+export function NotificationPlanning({
+  canCommit,
+}: {
+  canCommit: boolean;
+}) {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [pagination, setPagination] = useState<Pagination>(EMPTY_PAGINATION);
   const [loading, setLoading] = useState(true);
   const [previewLoadingId, setPreviewLoadingId] = useState<string>();
   const [preview, setPreview] = useState<Preview>();
+  const [commitBusy, setCommitBusy] = useState(false);
+  const [commitNotice, setCommitNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -176,6 +199,7 @@ export function NotificationPlanning() {
   async function openPreview(occurrenceId: string) {
     setPreviewLoadingId(occurrenceId);
     setError(undefined);
+    setCommitNotice(undefined);
     try {
       const response = await fetch(
         mountedPath(`/api/notification-planning/preview/${occurrenceId}`),
@@ -188,6 +212,47 @@ export function NotificationPlanning() {
       setError(errorMessage(previewError));
     } finally {
       setPreviewLoadingId(undefined);
+    }
+  }
+
+  async function commitPlan() {
+    if (!preview || preview.commit.state !== "READY") return;
+
+    setCommitBusy(true);
+    setError(undefined);
+
+    try {
+      const occurrenceId = preview.occurrence.id;
+      const response = await fetch(
+        mountedPath(
+          `/api/notification-planning/commit/${occurrenceId}`,
+        ),
+        { method: "POST" },
+      );
+
+      const payload = (await response.json()) as {
+        error?: string;
+        jobCount?: number;
+        plannedCount?: number;
+        waitingApprovalCount?: number;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          payload.error ?? "Could not commit notification plan.",
+        );
+      }
+
+      const refreshedOccurrences = await load(search, page);
+      apply(refreshedOccurrences);
+      await openPreview(occurrenceId);
+      setCommitNotice(
+        `Committed ${payload.jobCount ?? 0} durable job(s): ${payload.plannedCount ?? 0} planned, ${payload.waitingApprovalCount ?? 0} waiting approval.`,
+      );
+    } catch (commitError) {
+      setError(errorMessage(commitError));
+    } finally {
+      setCommitBusy(false);
     }
   }
 
@@ -227,8 +292,8 @@ export function NotificationPlanning() {
       <div className="notification-shadow-banner">
         <span>SHADOW</span>
         <div>
-          <strong>Explainable matching + schedule calculation</strong>
-          <p>Preview resolves WHO and deterministically calculates WHEN from confirmed policy fields. It creates no notification run, job, outbox event, or email.</p>
+          <strong>Preview first, commit explicitly</strong>
+          <p>Preview resolves WHO and WHEN with no side effects. Authorized users can then commit a ready plan into immutable durable jobs. The worker only marks due jobs; it still sends no email.</p>
         </div>
       </div>
 
@@ -246,7 +311,16 @@ export function NotificationPlanning() {
                 <strong>{occurrence.holidayName}</strong>
                 <span>{occurrence.startDate}{occurrence.endDate !== occurrence.startDate ? ` → ${occurrence.endDate}` : ""}</span>
               </div>
-              <div className="notification-occurrence-regions">{occurrence.regions.map((region) => <span key={region.id}>{region.code}</span>)}</div>
+              <div className="notification-occurrence-regions">
+                {occurrence.regions.map((region) => (
+                  <span key={region.id}>{region.code}</span>
+                ))}
+                {occurrence.notificationCommittedAt ? (
+                  <span className="notification-occurrence-committed">
+                    Committed
+                  </span>
+                ) : null}
+              </div>
               <button className="ati-btn ati-btn--secondary" disabled={previewLoadingId === occurrence.id} onClick={() => void openPreview(occurrence.id)} type="button">
                 {previewLoadingId === occurrence.id ? "Planning…" : "Preview plan"}
               </button>
@@ -263,7 +337,11 @@ export function NotificationPlanning() {
 
       {preview ? (
         <MatchingPreviewModal
+          canCommit={canCommit}
+          commitBusy={commitBusy}
+          commitNotice={commitNotice}
           onClose={() => setPreview(undefined)}
+          onCommit={() => void commitPlan()}
           preview={preview}
         />
       ) : null}
@@ -273,9 +351,17 @@ export function NotificationPlanning() {
 
 function MatchingPreviewModal({
   preview,
+  canCommit,
+  commitBusy,
+  commitNotice,
+  onCommit,
   onClose,
 }: {
   preview: Preview;
+  canCommit: boolean;
+  commitBusy: boolean;
+  commitNotice: string | undefined;
+  onCommit: () => void;
   onClose: () => void;
 }) {
   return createPortal(
@@ -306,6 +392,42 @@ function MatchingPreviewModal({
 
         <div className="matching-preview-modal__content">
           <MatchingPreview preview={preview} />
+        </div>
+
+        <div className="matching-preview-modal__commit">
+          <div>
+            <strong>
+              {preview.commit.state === "READY"
+                ? "Ready to commit"
+                : preview.commit.state === "COMMITTED"
+                  ? "Plan committed"
+                  : "Commit blocked"}
+            </strong>
+            <span>
+              {preview.commit.state === "READY"
+                ? "Commit freezes the current routing, recipients, policy versions, and calculated send time into durable jobs."
+                : preview.commit.state === "COMMITTED"
+                  ? `Committed ${new Date(preview.commit.committedAt).toLocaleString()}. Scheduler will only mark eligible jobs DUE; delivery is still disabled.`
+                  : preview.commit.reasons.map(humanize).join(" · ")}
+            </span>
+          </div>
+
+          {commitNotice ? (
+            <span className="matching-preview-modal__commit-notice">
+              {commitNotice}
+            </span>
+          ) : null}
+
+          {canCommit && preview.commit.state === "READY" ? (
+            <button
+              className="ati-btn"
+              disabled={commitBusy}
+              onClick={onCommit}
+              type="button"
+            >
+              {commitBusy ? "Committing…" : "Commit plan"}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>,

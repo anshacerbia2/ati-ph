@@ -32,6 +32,8 @@ function candidate(
           weekendAdjustment: "UNCONFIRMED",
           businessDayHolidayMode: "UNCONFIRMED",
           approvalMode: "UNCONFIRMED",
+          automaticSendAllowed: false,
+          retryCeiling: null,
         },
       ],
     },

@@ -20,11 +20,15 @@ export default async function NotificationPlanningPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        description="Explainable shadow-mode holiday-to-client matching. This view creates no notification jobs and sends no email."
+        description="Preview holiday-to-client routing and schedule calculation, then explicitly commit a ready plan into durable jobs. The scheduler marks due jobs only; email delivery is not implemented yet."
         eyebrow="Operations"
         title="Notification planning"
       />
-      <NotificationPlanning />
+      <NotificationPlanning
+        canCommit={permissions.has(
+          PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
+        )}
+      />
     </div>
   );
 }

@@ -26,6 +26,12 @@ const serverEnvSchema = z.object({
     .max(52_428_800)
     .default(10_485_760),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().min(5_000).default(60_000),
+  NOTIFICATION_SCHEDULER_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(500)
+    .default(100),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

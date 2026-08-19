@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
@@ -64,8 +65,15 @@ const globalScheduleVersionSchema = z
     }
   });
 
-export async function getGlobalNotificationSchedule() {
-  const policy = await db.notificationSchedulePolicy.findUnique({
+type GlobalScheduleReader = Pick<
+  Prisma.TransactionClient,
+  "notificationSchedulePolicy"
+>;
+
+export async function getGlobalNotificationSchedule(
+  database: GlobalScheduleReader = db,
+) {
+  const policy = await database.notificationSchedulePolicy.findUnique({
     where: { scopeKey: GLOBAL_SCOPE_KEY },
     include: {
       versions: { orderBy: { version: "desc" }, take: 10 },

@@ -1,19 +1,33 @@
 import { PrismaClient } from "@prisma/client";
 
 import { getServerEnv } from "@/config/server-env";
+import { promoteDueNotificationJobs } from "@/notifications/scheduler";
 
 const db = new PrismaClient();
 
 let stopping = false;
 
-async function maintenanceCycle(): Promise<void> {
-  const result = await db.authSession.deleteMany({
+async function maintenanceCycle(
+  schedulerBatchSize: number,
+): Promise<void> {
+  const sessionCleanup = await db.authSession.deleteMany({
     where: { expiresAt: { lte: new Date() } },
   });
 
-  if (result.count > 0) {
+  if (sessionCleanup.count > 0) {
     console.info(
-      `Removed ${result.count} expired ati-ph session(s).`,
+      `Removed ${sessionCleanup.count} expired ati-ph session(s).`,
+    );
+  }
+
+  const schedulerResult =
+    await promoteDueNotificationJobs(db, {
+      batchSize: schedulerBatchSize,
+    });
+
+  if (schedulerResult.count > 0) {
+    console.info(
+      `Notification scheduler marked ${schedulerResult.count} job(s) DUE.`,
     );
   }
 }
@@ -25,15 +39,20 @@ async function wait(milliseconds: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { WORKER_POLL_INTERVAL_MS } = getServerEnv();
+  const {
+    WORKER_POLL_INTERVAL_MS,
+    NOTIFICATION_SCHEDULER_BATCH_SIZE,
+  } = getServerEnv();
 
   console.info(
-    "ati-ph worker started (maintenance only; import validation is synchronous and authoritative in the API)",
+    "ati-ph worker started (session maintenance + notification due scheduler; no email delivery)",
   );
 
   while (!stopping) {
     try {
-      await maintenanceCycle();
+      await maintenanceCycle(
+        NOTIFICATION_SCHEDULER_BATCH_SIZE,
+      );
     } catch (error) {
       console.error("ati-ph worker cycle failed", error);
     }

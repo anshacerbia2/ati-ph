@@ -3393,3 +3393,51 @@ tbody tr:hover { background: var(--ati-gray-50); }
   background:var(--ati-white);
 }
 /* END notification-client-override-action */
+
+
+/* BEGIN notification-job-scheduler-foundation */
+.notification-occurrence-regions .notification-occurrence-committed{
+  border-color:color-mix(in srgb,var(--ati-success) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-success) 12%,var(--ati-white));
+  color:var(--ati-success);
+  font-weight:800;
+}
+.matching-preview-modal__commit{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  padding:.7rem 1rem;
+  border-top:1px solid var(--border-subtle);
+  background:var(--ati-white);
+}
+.matching-preview-modal__commit>div{
+  display:grid;
+  min-width:0;
+  flex:1;
+  gap:.12rem;
+}
+.matching-preview-modal__commit strong{
+  color:var(--text-strong);
+  font-size:var(--fs-micro);
+}
+.matching-preview-modal__commit>div>span{
+  color:var(--text-muted);
+  font-size:.68rem;
+  line-height:1.4;
+}
+.matching-preview-modal__commit-notice{
+  max-width:28rem;
+  color:var(--ati-success);
+  font-size:.68rem;
+  font-weight:700;
+}
+@media(max-width:760px){
+  .matching-preview-modal__commit{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .matching-preview-modal__commit .ati-btn{
+    width:100%;
+  }
+}
+/* END notification-job-scheduler-foundation */

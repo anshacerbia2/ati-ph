@@ -26,6 +26,8 @@ export type MatchingPolicyVersion = {
   weekendAdjustment: NotificationWeekendAdjustmentValue;
   businessDayHolidayMode: NotificationBusinessDayHolidayModeValue;
   approvalMode: NotificationApprovalModeValue;
+  automaticSendAllowed: boolean;
+  retryCeiling: number | null;
 };
 
 export type MatchingSubscriptionCandidate = {
@@ -81,6 +83,8 @@ export type MatchingResult = {
     weekendAdjustment: NotificationWeekendAdjustmentValue;
     businessDayHolidayMode: NotificationBusinessDayHolidayModeValue;
     approvalMode: NotificationApprovalModeValue;
+    automaticSendAllowed: boolean;
+    retryCeiling: number | null;
   } | null;
   to: MatchingRecipient[];
   cc: MatchingRecipient[];
@@ -175,6 +179,8 @@ export function evaluateSubscriptionMatch(
     weekendAdjustment: version.weekendAdjustment,
     businessDayHolidayMode: version.businessDayHolidayMode,
     approvalMode: version.approvalMode,
+    automaticSendAllowed: version.automaticSendAllowed,
+    retryCeiling: version.retryCeiling,
   };
 
   if (matchingDates.length === 0) {
