@@ -15,6 +15,8 @@ export type NotificationApprovalHashJob = {
   approvalMode: "REQUIRED";
   recipientSnapshot: unknown;
   ruleSnapshot: unknown;
+  contentSnapshot: unknown;
+  contentSha256: string | null;
   automaticSendAllowed: boolean;
   retryCeiling: number | null;
 };
@@ -47,6 +49,8 @@ export function computeNotificationApprovalContentHash(
       approvalMode: job.approvalMode,
       recipientSnapshot: job.recipientSnapshot,
       ruleSnapshot: job.ruleSnapshot,
+      contentSnapshot: job.contentSnapshot,
+      contentSha256: job.contentSha256,
       automaticSendAllowed: job.automaticSendAllowed,
       retryCeiling: job.retryCeiling,
     }));

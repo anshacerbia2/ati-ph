@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 
 import { db } from "@/lib/db";
 import {
+  computeNotificationContentSha256,
+  renderGovernedNotificationContent,
+} from "@/notifications/email-template";
+import {
   initialNotificationJobStatus,
 } from "@/notifications/job-rules";
 import {
@@ -145,6 +149,19 @@ export async function commitOccurrenceNotificationPlan(
         waitingApprovalCount += 1;
       }
 
+      const contentSnapshot =
+        renderGovernedNotificationContent({
+          clientName: result.clientName,
+          holidayName:
+            plan.occurrence.holidayName,
+          targetHolidayDate:
+            candidate.targetHolidayDate,
+        });
+      const contentSha256 =
+        computeNotificationContentSha256(
+          contentSnapshot,
+        );
+
       const idempotencyKey = createHash(
         "sha256",
       )
@@ -193,6 +210,8 @@ export async function commitOccurrenceNotificationPlan(
             cc: result.cc,
           },
           ruleSnapshot: {
+            clientName:
+              result.clientName,
             holidayName:
               plan.occurrence.holidayName,
             calendarRegion:
@@ -221,6 +240,8 @@ export async function commitOccurrenceNotificationPlan(
             appliedRules:
               candidate.appliedRules,
           },
+          contentSnapshot,
+          contentSha256,
           automaticSendAllowed:
             policy.automaticSendAllowed,
           retryCeiling:

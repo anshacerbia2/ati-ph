@@ -451,6 +451,8 @@ async function loadWaitingApprovalJobs(
       approvalMode: true,
       recipientSnapshot: true,
       ruleSnapshot: true,
+      contentSnapshot: true,
+      contentSha256: true,
       automaticSendAllowed: true,
       retryCeiling: true,
     },
@@ -490,6 +492,8 @@ function approvalHashFor(
         approvalMode: "REQUIRED",
         recipientSnapshot: job.recipientSnapshot,
         ruleSnapshot: job.ruleSnapshot,
+        contentSnapshot: job.contentSnapshot,
+        contentSha256: job.contentSha256,
         automaticSendAllowed:
           job.automaticSendAllowed,
         retryCeiling: job.retryCeiling,

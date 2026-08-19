@@ -694,6 +694,8 @@ model NotificationJob {
   status                              NotificationJobStatus
   recipientSnapshot                   Json
   ruleSnapshot                        Json
+  contentSnapshot                     Json?
+  contentSha256                       String?                            @db.Char(64)
   automaticSendAllowed                Boolean                            @default(false)
   retryCeiling                        Int?
   dueAt                               DateTime?                          @db.Timestamptz(3)

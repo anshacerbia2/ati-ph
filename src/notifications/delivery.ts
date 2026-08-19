@@ -31,6 +31,8 @@ export type NotificationDeliveryClaim = {
   idempotencyKey: string;
   recipientSnapshot: Prisma.JsonValue;
   ruleSnapshot: Prisma.JsonValue;
+  contentSnapshot: Prisma.JsonValue | null;
+  contentSha256: string | null;
   retryCeiling: number | null;
 };
 
@@ -100,6 +102,8 @@ export async function claimDueNotificationJobs(
             idempotencyKey: true,
             recipientSnapshot: true,
             ruleSnapshot: true,
+            contentSnapshot: true,
+            contentSha256: true,
             retryCeiling: true,
           },
         });
@@ -145,6 +149,8 @@ export async function claimDueNotificationJobs(
         idempotencyKey: job.idempotencyKey,
         recipientSnapshot: job.recipientSnapshot,
         ruleSnapshot: job.ruleSnapshot,
+        contentSnapshot: job.contentSnapshot,
+        contentSha256: job.contentSha256,
         retryCeiling: job.retryCeiling,
       });
     }

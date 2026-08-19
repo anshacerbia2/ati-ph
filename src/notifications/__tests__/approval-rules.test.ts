@@ -24,6 +24,23 @@ const base: NotificationApprovalHashJob = {
     cc: [],
   },
   ruleSnapshot: { leadTimeValue: 5 },
+  contentSnapshot: {
+    schemaVersion: 1,
+    templateCode: "FCTG_MASTER_DEFAULT",
+    templateVersion: 1,
+    source: {
+      workbook: "source",
+      sheet: "Email Template",
+      row: 2,
+      client: "All",
+      type: "Default",
+      status: "Active",
+    },
+    subject: "Subject A",
+    html: "<p>Body A</p>",
+    attachments: [],
+  },
+  contentSha256: "c".repeat(64),
   automaticSendAllowed: false,
   retryCeiling: null,
 };
@@ -63,6 +80,20 @@ describe("notification approval snapshot", () => {
         {
           ...base,
           plannedLocalTime: "10:00",
+        },
+      ]),
+    );
+
+    expect(
+      computeNotificationApprovalContentHash([base]),
+    ).not.toBe(
+      computeNotificationApprovalContentHash([
+        {
+          ...base,
+          contentSnapshot: {
+            ...(base.contentSnapshot as Record<string, unknown>),
+            subject: "Subject B",
+          },
         },
       ]),
     );

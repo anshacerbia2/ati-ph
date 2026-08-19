@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import type { EmailMessage } from "@/email/contracts";
 import type { NotificationDeliveryClaim } from "@/notifications/delivery";
+import {
+  computeNotificationContentSha256,
+  parseNotificationContentSnapshot,
+} from "@/notifications/email-template";
 
 const recipientSchema = z.object({
   email: z.email(),
@@ -13,41 +17,29 @@ const recipientSnapshotSchema = z.object({
   cc: z.array(recipientSchema).default([]),
 });
 
-const regionSchema = z.object({
-  code: z.string().min(1),
-  displayName: z.string().min(1),
-}).passthrough();
-
-const ruleSnapshotSchema = z.object({
-  holidayName: z.string().min(1),
-  calendarRegion: regionSchema,
-  targetHolidayDate: z.string().min(1),
-}).passthrough();
-
 export class NotificationEmailComposerError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "NotificationEmailComposerError";
+    this.name =
+      "NotificationEmailComposerError";
   }
 }
 
 /**
- * Safe technical composer used only by STREAM execution.
+ * STREAM execution now renders the exact governed client-facing
+ * content frozen at NotificationJob commit time.
  *
- * This is deliberately not the final client-facing PH email template.
- * It proves the frozen-snapshot -> email-message boundary without
- * authorizing external delivery or inventing business copy.
+ * STREAM still has no network delivery. External SMTP execution
+ * remains gated separately in the worker.
  */
 export function composeStreamNotificationEmail(input: {
   claim: NotificationDeliveryClaim;
   senderIdentityCode: string;
 }): EmailMessage {
-  const recipients = recipientSnapshotSchema.safeParse(
-    input.claim.recipientSnapshot,
-  );
-  const rules = ruleSnapshotSchema.safeParse(
-    input.claim.ruleSnapshot,
-  );
+  const recipients =
+    recipientSnapshotSchema.safeParse(
+      input.claim.recipientSnapshot,
+    );
 
   if (!recipients.success) {
     throw new NotificationEmailComposerError(
@@ -57,46 +49,84 @@ export function composeStreamNotificationEmail(input: {
     );
   }
 
-  if (!rules.success) {
+  if (
+    !input.claim.contentSnapshot ||
+    !input.claim.contentSha256
+  ) {
     throw new NotificationEmailComposerError(
-      `Rule snapshot is invalid: ${rules.error.issues
-        .map((issue) => issue.message)
-        .join(", ")}`,
+      "Notification job has no frozen governed email content snapshot.",
     );
   }
 
-  const region = rules.data.calendarRegion;
+  let content;
+
+  try {
+    content =
+      parseNotificationContentSnapshot(
+        input.claim.contentSnapshot,
+      );
+  } catch (error) {
+    throw new NotificationEmailComposerError(
+      `Email content snapshot is invalid: ${
+        error instanceof Error
+          ? error.message
+          : String(error)
+      }`,
+    );
+  }
+
+  const computedSha =
+    computeNotificationContentSha256(
+      content,
+    );
+
+  if (
+    computedSha !==
+    input.claim.contentSha256
+  ) {
+    throw new NotificationEmailComposerError(
+      "Frozen email content checksum does not match its snapshot.",
+    );
+  }
 
   return {
-    senderIdentityCode: input.senderIdentityCode,
-    idempotencyKey: input.claim.idempotencyKey,
-    to: recipients.data.to.map((recipient) => ({
-      email: recipient.email,
-      name: recipient.displayName ?? null,
-    })),
-    cc: recipients.data.cc.map((recipient) => ({
-      email: recipient.email,
-      name: recipient.displayName ?? null,
-    })),
-    subject:
-      `[STREAM TEST] Public holiday notification - ${rules.data.holidayName}`,
-    text: [
-      "ATI PH notification delivery technical preview",
-      "",
-      `Holiday: ${rules.data.holidayName}`,
-      `Region: ${region.displayName} (${region.code})`,
-      `Holiday date: ${rules.data.targetHolidayDate}`,
-      `Notification job: ${input.claim.jobId}`,
-      `Delivery attempt: ${input.claim.attemptNumber}`,
-      "",
-      "This message was composed for STREAM validation only.",
-      "It is not the approved production client-facing email template.",
-    ].join("\n"),
+    senderIdentityCode:
+      input.senderIdentityCode,
+    idempotencyKey:
+      input.claim.idempotencyKey,
+    to: recipients.data.to.map(
+      (recipient) => ({
+        email: recipient.email,
+        name:
+          recipient.displayName ?? null,
+      }),
+    ),
+    cc: recipients.data.cc.map(
+      (recipient) => ({
+        email: recipient.email,
+        name:
+          recipient.displayName ?? null,
+      }),
+    ),
+    subject: content.subject,
+    html: content.html,
     headers: {
-      "X-ATI-Notification-Job": input.claim.jobId,
+      "X-ATI-Notification-Job":
+        input.claim.jobId,
       "X-ATI-Delivery-Attempt":
-        String(input.claim.attemptNumber),
-      "X-ATI-Content-Mode": "STREAM_TECHNICAL_PREVIEW",
+        String(
+          input.claim.attemptNumber,
+        ),
+      "X-ATI-Email-Template":
+        content.templateCode,
+      "X-ATI-Email-Template-Version":
+        String(
+          content.templateVersion,
+        ),
+      "X-ATI-Content-SHA256":
+        input.claim.contentSha256,
+      "X-ATI-Content-Mode":
+        "GOVERNED_TEMPLATE_STREAM_PREVIEW",
     },
   };
 }

@@ -4,9 +4,34 @@ import {
   composeStreamNotificationEmail,
   NotificationEmailComposerError,
 } from "@/notifications/email-composer";
+import {
+  computeNotificationContentSha256,
+  renderGovernedNotificationContent,
+} from "@/notifications/email-template";
+
+function frozenContent() {
+  const content =
+    renderGovernedNotificationContent({
+      clientName: "Client Alpha",
+      holidayName:
+        "Example Holiday Alpha",
+      targetHolidayDate:
+        "2026-12-25",
+    });
+
+  return {
+    content,
+    contentSha256:
+      computeNotificationContentSha256(
+        content,
+      ),
+  };
+}
 
 describe("notification STREAM email composer", () => {
-  it("composes only from the frozen job snapshots", () => {
+  it("uses exact governed content frozen on the job", () => {
+    const frozen = frozenContent();
+
     const message =
       composeStreamNotificationEmail({
         senderIdentityCode:
@@ -16,36 +41,38 @@ describe("notification STREAM email composer", () => {
           jobId: "job-1",
           attemptNumber: 1,
           leaseExpiresAt:
-            new Date("2026-08-20T00:00:00Z"),
-          idempotencyKey: "job-idempotency",
+            new Date(
+              "2026-08-20T00:00:00Z",
+            ),
+          idempotencyKey:
+            "job-idempotency",
           retryCeiling: 3,
           recipientSnapshot: {
             to: [
               {
-                contactId: "contact-1",
-                displayName: "Client Ops",
-                email: "client@dummy.test",
+                contactId:
+                  "contact-1",
+                displayName:
+                  "Client Ops",
+                email:
+                  "client@dummy.test",
               },
             ],
             cc: [
               {
-                contactId: "contact-2",
+                contactId:
+                  "contact-2",
                 displayName: null,
-                email: "audit@dummy.test",
+                email:
+                  "audit@dummy.test",
               },
             ],
           },
-          ruleSnapshot: {
-            holidayName:
-              "Example Holiday Alpha",
-            calendarRegion: {
-              id: "region-1",
-              code: "AU",
-              displayName: "Australia",
-            },
-            targetHolidayDate:
-              "2026-12-25",
-          },
+          ruleSnapshot: {},
+          contentSnapshot:
+            frozen.content,
+          contentSha256:
+            frozen.contentSha256,
         },
       });
 
@@ -61,20 +88,25 @@ describe("notification STREAM email composer", () => {
         name: null,
       },
     ]);
-    expect(message.subject).toContain(
-      "Example Holiday Alpha",
+    expect(message.subject).toBe(
+      "ATI - Client Alpha Public Holiday Reminder - Example Holiday Alpha - 25 December 2026",
     );
-    expect(message.text).toContain(
-      "STREAM validation only",
+    expect(message.html).toContain(
+      "Hi Client Alpha Leaders,",
+    );
+    expect(message.attachments).toBe(
+      undefined,
     );
     expect(
       message.headers?.[
         "X-ATI-Content-Mode"
       ],
-    ).toBe("STREAM_TECHNICAL_PREVIEW");
+    ).toBe(
+      "GOVERNED_TEMPLATE_STREAM_PREVIEW",
+    );
   });
 
-  it("fails closed when a frozen snapshot is incomplete", () => {
+  it("fails closed for legacy jobs without frozen content", () => {
     expect(() =>
       composeStreamNotificationEmail({
         senderIdentityCode:
@@ -83,16 +115,66 @@ describe("notification STREAM email composer", () => {
           attemptId: "attempt-1",
           jobId: "job-1",
           attemptNumber: 1,
-          leaseExpiresAt: new Date(),
-          idempotencyKey: "job-idempotency",
+          leaseExpiresAt:
+            new Date(),
+          idempotencyKey:
+            "job-idempotency",
           retryCeiling: null,
           recipientSnapshot: {
-            to: [],
+            to: [
+              {
+                email:
+                  "client@dummy.test",
+              },
+            ],
             cc: [],
           },
           ruleSnapshot: {},
+          contentSnapshot: null,
+          contentSha256: null,
         },
       }),
-    ).toThrow(NotificationEmailComposerError);
+    ).toThrow(
+      NotificationEmailComposerError,
+    );
+  });
+
+  it("fails closed when the frozen content checksum is altered", () => {
+    const frozen = frozenContent();
+
+    expect(() =>
+      composeStreamNotificationEmail({
+        senderIdentityCode:
+          "PH_NOTIFICATION",
+        claim: {
+          attemptId: "attempt-1",
+          jobId: "job-1",
+          attemptNumber: 1,
+          leaseExpiresAt:
+            new Date(),
+          idempotencyKey:
+            "job-idempotency",
+          retryCeiling: null,
+          recipientSnapshot: {
+            to: [
+              {
+                email:
+                  "client@dummy.test",
+              },
+            ],
+            cc: [],
+          },
+          ruleSnapshot: {},
+          contentSnapshot: {
+            ...frozen.content,
+            subject: "tampered",
+          },
+          contentSha256:
+            frozen.contentSha256,
+        },
+      }),
+    ).toThrow(
+      "checksum does not match",
+    );
   });
 });
