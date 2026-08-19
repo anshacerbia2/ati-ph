@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.17 |
-| Date | 2026-08-17 |
+| Status | Governed import through controlled notification-delivery foundation implemented; production SMTP activation and trusted automation gates remain open |
+| Version | 0.4.0 |
+| Date | 2026-08-19 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -35,6 +35,64 @@ flowchart TD
 ```
 
 Foundation work inside Phase 0 establishes the Next.js application, PostgreSQL schema, dedicated worker entry point, ATI One internal-app mount compatibility, and application-owned authentication/session boundary. It must not implement unresolved holiday or notification policy as guessed behavior
+
+## 2.1 Current progress — 2026-08-19
+
+Completed delivery slices:
+
+```text
+Phase 0 foundation
+→ complete baseline
+
+Governed import/calendar
+→ implemented
+
+Client routing
+→ implemented
+
+Notification policy + global/client schedule
+→ implemented
+
+Plan preview + durable commit
+→ implemented
+
+Notification maker-checker
+→ implemented
+
+Due scheduler + worker
+→ implemented
+
+Delivery attempt contract
+→ implemented
+
+Retry + lease recovery
+→ implemented
+
+Provider-neutral Email Delivery Engine
+→ implemented
+
+Governed workbook-derived email content snapshot
+→ implemented
+
+STREAM delivery proof
+→ implemented
+
+Gated manual SMTP connectivity test
+→ implemented
+```
+
+Open production gates:
+
+- actual approved production SMTP relay/credential path
+- controlled real-recipient SMTP pilot
+- automatic SMTP NotificationJob execution
+- partial SMTP acceptance handling review
+- unknown-outcome operational remediation
+- bounce/NDR ingestion where required
+- production monitoring/runbook
+- governed output attachment only if Operations confirms one is required
+
+A manual SMTP test is deliberately not equivalent to completing controlled production email delivery
 
 ## 3. Phase 0 — Contract and Decision Baseline
 

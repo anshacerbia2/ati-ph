@@ -1,180 +1,458 @@
 # ATI PH Notification
 
-Standalone Next.js 16 application for public-holiday notification operations.
-ATI One is the entry point and renders the app through a same-origin
-iframe/reverse-proxy path at `/apps/ph-notification/app`.
+Standalone Next.js 16 application for governed public-holiday notification operations.
 
-The canonical production browser URL is
-`https://one.atibusinessgroup.com/apps/ph-notification/app`. The path-only form
-is used in ATI One's iframe/proxy configuration because the browser resolves it
-against the ATI One origin.
+ATI One is the browser entry point and mounts ATI PH through the same-origin path:
 
-The operational dashboard intentionally mirrors the PH Notification mockup in
-ATI One. Its colors, typography, spacing, radii, cards, buttons, badges, and tags
-are local copies of the ATI design-system contract so this app can deploy
-independently without importing runtime code from `ai-portal`.
+```text
+/apps/ph-notification/app
+```
+
+Canonical production browser URL:
+
+```text
+https://one.atibusinessgroup.com/apps/ph-notification/app
+```
+
+ATI PH remains independently owned and deployed as two runtime processes from one repository:
+
+```text
+Next.js web process
++
+ATI PH worker process
++
+PostgreSQL
+```
+
+## Current implementation status
+
+Implemented through 2026-08-19:
+
+- ATI One mounted application boundary
+- Keycloak authentication with ATI PH-owned database sessions
+- PostgreSQL application authorization and permission-gated menus
+- Governed holiday XLSX import, validation, maker-checker approval, and canonical publication
+- Bounded-context PostgreSQL schemas
+- Calendar-region governance
+- Client, service-team, contact, subscription, TO, and CC routing
+- Versioned notification policy and global/client scheduling policy
+- Explainable notification planning and durable plan commit
+- Notification plan maker-checker approval
+- Durable `NotificationJob` snapshots
+- Due scheduler
+- Separate worker execution
+- Delivery attempts, leases, lease recovery, retry ceiling, exponential backoff, and failure classification
+- Provider-neutral Email Delivery Engine
+- Generic SMTP transport
+- Safe in-memory STREAM transport
+- Governed Public Holiday email template sourced from the supplied workbook
+- Frozen rendered email content with SHA-256 integrity check
+- Approval hash includes the exact frozen delivery content
+- Explicit gated manual SMTP connectivity test
+
+Not enabled yet:
+
+- Automatic SMTP execution of production `NotificationJob` records
+- Automatic provider failover
+- Provider-specific API adapters
+- Bounce/NDR ingestion
+- Production SMTP relay activation
+- Production output attachment contract where Operations has not supplied one
+
+SMTP configuration does not unlock automatic notification delivery. The worker currently claims email jobs only when `EMAIL_DELIVERY_MODE=STREAM`.
+
+## Architecture boundary
+
+```text
+Public Holiday business rules
+→ Notification planning
+→ frozen NotificationJob
+→ scheduler
+→ worker
+→ Email Delivery Engine
+→ STREAM or configured SMTP transport
+```
+
+Business rules do not know Google, Brevo, SMTP2GO, or another transport provider.
+
+Sender identity is also separate from transport routing:
+
+```text
+PH_NOTIFICATION
+→ apps@atibusinessgroup.com
+→ transport code
+→ transport adapter
+```
+
+See:
+
+- `architecture.md`
+- `plan.md`
+- `PROPOSAL.md`
+- `docs/EMAIL-DELIVERY-PLATFORM.md`
+- `docs/LOCAL-EMAIL-TESTING.md`
+- `docs/ACCESS-CONTROL.md`
+- `docs/DATABASE-SCHEMA-BOUNDARIES.md`
+- `docs/GOVERNED-IMPORT-CONTRACT.md`
 
 ## Authentication boundary
 
-- Keycloak proves identity using the same client ID currently used by ATI One.
-- ATI PH creates its own database-backed `ati_ph_session` cookie.
-- ATI PH does not consume ATI One cookies or tokens.
-- ATI PH refreshes only when its encrypted access token enters the configured
-  expiry skew; concurrent refreshes are coalesced and a refused refresh revokes
-  the local database session.
-- Iframe navigation attempts silent SSO with `prompt=none`; direct/top-level
-  navigation uses normal OIDC login, and the fallback button always requests an
-  interactive login.
-- Logout ends only the ATI PH app session so it does not unexpectedly sign the
-  user out of ATI One.
-- Production can reject direct-origin traffic using the `x-ati-one-proxy` proof
-  header.
+- Keycloak proves identity
+- ATI PH creates its own database-backed `ati_ph_session`
+- ATI PH does not consume ATI One cookies or application authorization state
+- Keycloak is not the source of ATI PH business roles
+- ATI PH roles and permissions live in PostgreSQL
+- Logout currently ends the ATI PH local session only
+- The shared ATI One Keycloak client remains a temporary internal-app decision
 
-The shared Keycloak client is an explicit temporary internal-app decision. Split
-it before ATI PH receives an independently reachable origin or requires a
-different redirect, CSP, or token policy.
+The future dedicated-client and single-logout direction is documented in `docs/FUTURE-SINGLE-LOGOUT.md`.
 
 ## Local setup
 
-1. Use Node.js 20.19+ (Node.js 22 LTS or 24 is recommended).
-2. Copy `.env.example` to `.env` and provide the Keycloak/database secrets.
-3. Run `npm run db:generate` and `npm run db:migrate`.
-4. Run `npm run dev` for the web app and `npm run worker` separately.
+Requirements:
 
-Open `http://localhost:3000/apps/ph-notification/app`. In development only,
-opening `http://localhost:3000/` redirects to that mounted path. Set
-`DEV_APP_ORIGIN` if the dev server uses another origin or port.
+- Node.js 20.19+; Node.js 22 LTS or Node.js 24 are suitable
+- PostgreSQL
+- Local `.env`
+- Keycloak/database credentials
 
-Production must use the ATI One public origin from `.env.production.example`.
-Do not replace the local `.env` URL with the production URL while testing the
-standalone dev server, because the OIDC callback must return to the same public
-origin that initiated login.
+Setup:
 
-The local environment uses `http://localhost:3000/api/auth/callback/keycloak`,
-which is already registered for the shared ATI One Keycloak client. ATI PH
-redirects that development-only callback to its mounted handler. Run
-ATI PH by itself on port 3000; ATI One does not need to run for this standalone
-flow. Full iframe testing is a separate topology: ATI One owns port 3000, ATI PH
-runs on another upstream port, and Keycloak must allow the complete mounted
-callback URI.
+```cmd
+copy .env.example .env
+npm install
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
 
-Keycloak must allow this exact callback URL:
+Run the web process:
 
-`{PUBLIC_APP_URL}/api/auth/callback/keycloak`
+```cmd
+npm run dev
+```
 
-For production, that resolves to
-`https://one.atibusinessgroup.com/apps/ph-notification/app/api/auth/callback/keycloak`.
+Run the worker separately:
+
+```cmd
+npm run worker
+```
+
+Open:
+
+```text
+http://localhost:3000/apps/ph-notification/app
+```
+
+In development only, opening `http://localhost:3000/` redirects to the mounted path.
+
+## Worker responsibility
+
+The worker is not optional in the production topology.
+
+It owns background execution such as:
+
+- expired application-session cleanup
+- `PLANNED -> DUE` promotion
+- expired delivery-lease recovery
+- `RETRY_WAIT -> DUE` promotion
+- STREAM delivery execution when explicitly configured
+
+Web requests do not run durable scheduling or delivery work as unawaited background tasks.
+
+## Database
+
+ATI PH uses one PostgreSQL database with bounded-context schemas:
+
+```text
+access
+approval
+governance
+holiday
+import
+notification
+routing
+```
+
+`public` remains available for Prisma migration bookkeeping.
+
+See `docs/DATABASE-SCHEMA-BOUNDARIES.md`.
 
 ## Local role assignment
 
-ATI PH application roles are stored locally in PostgreSQL. A user must sign in through Keycloak at least once before a local role can be attached.
+A user must sign in through Keycloak at least once before assigning an ATI PH role.
 
-Grant one role:
+Example:
 
-```bash
+```cmd
 npm run authz:grant -- --email user@example.com --role OPERATOR
 ```
 
-Grant another role to the same user by running the command again with a different role:
-
-```bash
-npm run authz:grant -- --email user@example.com --role APPROVER
-```
-
-Supported system roles are `ADMINISTRATOR`, `OPERATOR`, `APPROVER`, and `AUDITOR`. One user may hold multiple roles. Maker-checker still requires the approval requester and approver to be different users even when one account holds both OPERATOR and APPROVER.
-
-## Database schema boundaries
-
-ATI PH uses one PostgreSQL database with explicit bounded-context schemas for
-`access`, `governance`, `import`, `approval`, `holiday`, `routing`, and
-`notification`. Prisma relations may cross those schemas inside the modular
-monolith, while raw SQL must use schema-qualified application table names.
-
-See `docs/DATABASE-SCHEMA-BOUNDARIES.md` for the mapping and invariants.
-
-## Validation
+Supported roles:
 
 ```text
-npm run lint
-npm run typecheck
-npm test
-npm run build
+ADMINISTRATOR
+OPERATOR
+APPROVER
+AUDITOR
 ```
+
+A user can hold multiple roles, but maker-checker identity separation still applies.
+
+Current notification permissions include:
+
+```text
+notification_policy.read
+notification_policy.manage
+notification_plan.read
+notification_plan.commit
+notification_plan.approve
+```
+
+See `docs/ACCESS-CONTROL.md`.
 
 ## Governed holiday import
 
-The dashboard accepts `.xlsx` uploads from users with the `OPERATOR` or
-`ADMINISTRATOR` application role. The current Phase 1 flow previews
-`Holiday_Master` in the browser for UX only, submits only the untouched XLSX,
-parses and validates it authoritatively once in the server API, stores accepted
-raw evidence immutably, persists authoritative rows and issues, emits
-`ImportBatchValidated` transactionally, supports maker-checker approval, and
-publishes canonical holiday occurrences. Email delivery remains outside Phase 1.
+The server is authoritative for XLSX validation.
 
-Duplicate identity is deliberately split into two layers:
+Current contract:
 
-- `fileSha256` identifies byte-identical XLSX evidence and hard-blocks
-  `EXACT_FILE_DUPLICATE`
-- `businessContentSha256` identifies canonical authoritative `Holiday_Master`
-  business content and hard-blocks `SAME_HOLIDAY_DATA`, even when workbook
-  metadata, filename, formatting, row order, or unrelated sheets differ
-- Source row ID, source reference, remarks, legacy `Day`/`Tag`, and sheets other
-  than `Holiday_Master` do not create a new holiday business dataset
-- The normal import flow has no exact-duplicate or semantic-duplicate confirmation override
+```text
+XLSX upload
+→ immutable raw evidence
+→ authoritative server validation
+→ staging
+→ maker-checker
+→ canonical holiday occurrence
+→ notification planning
+```
 
-Development artifacts are written under `ARTIFACT_STORAGE_DIR` (default
-`./storage/artifacts`) and are ignored by Git. Production must use a durable,
-encrypted mounted path or a replacement storage adapter. Set
-`IMPORT_MAX_FILE_SIZE_BYTES` to the approved upload limit.
+Important duplicate controls:
 
-Phase 1 database changes are represented by the committed Prisma migrations
-under `prisma/migrations`, including authoritative server validation and
-`businessContentSha256`. Existing environments must run `npm run db:deploy`;
-use `npm run db:migrate` only while developing new migrations.
+- `fileSha256` blocks byte-identical source evidence
+- `businessContentSha256` blocks the same canonical holiday business dataset even when workbook bytes differ
+- source row ID, remarks, formatting, unrelated sheets, legacy `Day`, and legacy `Tag` do not create a new business dataset
 
-The accepted workbook contract and current limitations are documented in
-`docs/GOVERNED-IMPORT-CONTRACT.md`.
-
-The official governed workbook files are:
+Official governed import files:
 
 - `docs/ATI-PH-Import-Template-Governed.xlsx`
 - `docs/ATI-PH-Example-Import-Governed.xlsx`
 
-See `PROPOSAL.md`, `architecture.md`, and `plan.md` for the client-facing solution,
-implementation boundaries, and delivery phases.
+See `docs/GOVERNED-IMPORT-CONTRACT.md`.
 
-Related contracts:
+## Notification planning and approval
 
-- `docs/GOVERNED-IMPORT-CONTRACT.md`
-- `docs/ACCESS-CONTROL.md`
-- `docs/EMAIL-DELIVERY-PLATFORM.md`
+Routing answers **who** receives a notification.
 
-The current shared-client logout limitation and the target dedicated-client,
-back-channel single-logout design are documented in
-`docs/FUTURE-SINGLE-LOGOUT.md`.
+Scheduling policy answers **when** it should be sent.
 
-## Email delivery direction
+Plan commit freezes the execution contract into durable `NotificationJob` rows, including:
 
-Email delivery is outside the current Phase 1 implementation
+- recipient snapshot
+- rule snapshot
+- schedule snapshot
+- rendered governed email content
+- email content SHA-256
+- automatic-send flag
+- retry ceiling
 
-The planned Phase 3 design is provider-neutral:
+When approval is required:
 
-- Generic SMTP is the first transport adapter
-- Provider records and ordered routes are runtime configuration
-- Provider adapter implementations remain trusted code
-- SMTP-compatible providers can be switched without changing Public Holiday business logic when they use the same implemented SMTP adapter
-- Provider-specific API adapters remain optional
-- Microsoft Graph is not a required dependency
-- No paid provider is mandatory in the architecture
-- Automatic provider fallback is forbidden after provider acceptance or an unknown delivery outcome
-- The delivery capability starts as a reusable module and becomes a shared Email Delivery Platform only after a second production consumer validates the contract
+```text
+commit
+→ WAITING_APPROVAL
+→ maker-checker approval
+→ PLANNED
+```
 
-See `docs/EMAIL-DELIVERY-PLATFORM.md` for the detailed design
+Rejection transitions waiting jobs to `CANCELLED`.
+
+Approval hashes include the exact frozen email content so a later template change cannot silently alter an already approved notification.
+
+## Governed Public Holiday email content
+
+The current default email contract is grounded in the supplied workbook `Email Template` sheet, active `All / Default` row.
+
+Current subject template:
+
+```text
+ATI - [Client Name] Public Holiday Reminder - [PH Name] - [Date Period]
+```
+
+Rendered content is frozen at plan commit time.
+
+The delivery worker does not rerender from a later mutable template version.
+
+Existing committed jobs created before the frozen-content migration are intentionally not backfilled.
+
+The current active default workbook template does not define an attachment contract, so no attachment is invented by the application.
+
+## Email Delivery Engine
+
+The reusable email engine separates:
+
+```text
+EmailMessage
+→ SenderIdentity
+→ Transport route
+→ EmailTransport
+```
+
+Current transports:
+
+- `STREAM`: renders a complete RFC822 message in memory and sends nothing externally
+- `SMTP`: generic Nodemailer SMTP transport
+
+Current safety controls:
+
+- delivery defaults to disabled
+- deterministic Message-ID from the business idempotency key
+- no implicit provider fallback
+- file and URL attachment access disabled
+- credentials come from environment secrets
+- unknown delivery outcome is never automatically retried
+- lease recovery is auto-retryable only when the durable attempt explicitly records `leaseRetrySafe=true`
+- production NotificationJob SMTP execution remains gated
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md`.
+
+## Email tests
+
+### 1. Full automated verification
+
+```cmd
+npm run verify
+```
+
+This runs:
+
+```text
+typecheck
+unit/contract tests
+lint
+production build
+```
+
+### 2. STREAM validation
+
+Safe transport validation uses:
+
+```env
+EMAIL_DELIVERY_MODE=STREAM
+EMAIL_SENDER_IDENTITY_CODE=PH_NOTIFICATION
+EMAIL_FROM_ADDRESS=apps@atibusinessgroup.com
+EMAIL_FROM_NAME=ATI Business Group
+EMAIL_TRANSPORT_CODE=SAFE_STREAM
+```
+
+`STREAM` never opens an external SMTP connection.
+
+Important: when the worker is running in STREAM mode, eligible real database notification jobs can be claimed and transitioned as delivery work even though the message is only generated in memory. Use STREAM worker execution only against a local/test database whose delivery state may safely change.
+
+For normal code-level validation, prefer:
+
+```cmd
+npm run verify
+```
+
+### 3. Gated manual SMTP connectivity test
+
+This is the only current supported way to send a real SMTP test email from the repository.
+
+It is intentionally separate from `NotificationJob` execution and does not access the application database.
+
+Example local Google Workspace direct-SMTP configuration:
+
+```env
+EMAIL_DELIVERY_MODE=SMTP
+
+EMAIL_SENDER_IDENTITY_CODE=PH_NOTIFICATION
+EMAIL_FROM_ADDRESS=apps@atibusinessgroup.com
+EMAIL_FROM_NAME=ATI Business Group
+EMAIL_TRANSPORT_CODE=ATI_GOOGLE_DIRECT
+
+EMAIL_SMTP_HOST=smtp.gmail.com
+EMAIL_SMTP_PORT=587
+EMAIL_SMTP_SECURE=false
+EMAIL_SMTP_REQUIRE_TLS=true
+
+EMAIL_SMTP_USER=apps@atibusinessgroup.com
+EMAIL_SMTP_PASSWORD=<APP_PASSWORD_OR_OTHER_IT_APPROVED_APPLICATION_CREDENTIAL>
+
+EMAIL_SMTP_CONNECTION_TIMEOUT_MS=10000
+
+EMAIL_SMTP_TEST_ENABLED=true
+EMAIL_SMTP_TEST_RECIPIENT=<YOUR_ATI_EMAIL>
+```
+
+Then explicitly send exactly one technical test message:
+
+```cmd
+npm run email:smtp:test -- --send
+```
+
+The command refuses to send unless:
+
+- delivery mode is `SMTP`
+- `EMAIL_SMTP_TEST_ENABLED=true`
+- `EMAIL_SMTP_TEST_RECIPIENT` is configured
+- the explicit `--send` flag is present
+- test-recipient domain matches `EMAIL_FROM_ADDRESS`
+
+Do not use a normal Google login password.
+
+Do not paste SMTP credentials into issues, docs, commits, chat logs, or screenshots.
+
+For full instructions and Google Workspace notes, see `docs/LOCAL-EMAIL-TESTING.md`.
+
+## Production email direction
+
+Production remains fail-closed:
+
+```env
+EMAIL_DELIVERY_MODE=DISABLED
+EMAIL_SMTP_TEST_ENABLED=false
+```
+
+The production target can use Google Workspace SMTP relay or another approved SMTP-compatible provider without changing Public Holiday business logic.
+
+Automatic SMTP NotificationJob execution is a separate release gate and must not be inferred from a successful manual SMTP connectivity test.
+
+## Validation commands
+
+Fast verification:
+
+```cmd
+npm run verify:fast
+```
+
+Full verification:
+
+```cmd
+npm run verify
+```
+
+Database schema drift:
+
+```cmd
+npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+```
+
+Working-tree whitespace validation:
+
+```cmd
+git diff --check
+```
+
+## Environment files
+
+- `.env.example` is the local-development reference
+- `.env.production.example` is the fail-closed production reference
+- `.env` is local-only and ignored by Git
+- never commit actual database, Keycloak, SMTP, proxy, or session secrets
 
 ## Browser extension hydration warnings
 
-Attributes such as `bis_skin_checked`, `bis_register`, and `processed_<uuid>`
-are injected before React hydrates by security/password-manager browser
-extensions. Root boundaries suppress the common noise, but an extension can
-still modify nested nodes. Disable the extension for localhost when checking
-hydration; these attributes are not emitted by ATI PH.
+Attributes such as `bis_skin_checked`, `bis_register`, and `processed_<uuid>` can be injected by browser extensions before React hydrates.
+
+Disable the extension for localhost when validating hydration. These attributes are not emitted by ATI PH.

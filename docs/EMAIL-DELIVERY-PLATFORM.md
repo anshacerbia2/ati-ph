@@ -2,443 +2,418 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Proposed Phase 3 capability and reusable platform candidate |
-| Version | 0.1.0 |
-| Date | 2026-08-17 |
+| Status | Stage 1 reusable engine implemented; automatic production SMTP remains gated |
+| Version | 0.2.0 |
+| Date | 2026-08-19 |
 | First consumer | Public Holiday Notification Workflow |
-| Current implementation | Not yet implemented |
-| Initial adapter strategy | Generic SMTP first |
-| Provider selection | Runtime configuration |
-| Mandatory paid provider | None |
+| Current implementation | Provider-neutral engine, STREAM, generic SMTP, durable attempt/retry contract, manual SMTP test |
+| Initial production provider direction | Approved SMTP-compatible route; Google Workspace relay is the current ATI candidate |
+| Platform extraction | Not justified yet |
 
 ## 1. Purpose
 
-Define the provider-neutral email delivery capability required by Public Holiday Notification without coupling the workflow to Microsoft Graph, SMTP2GO, Brevo, MailerSend, Elastic Email, Postal, or any other single provider
+Define the provider-neutral email delivery capability used by ATI PH without coupling Public Holiday business logic to Google, Brevo, SMTP2GO, Microsoft Graph, or another provider.
 
-The capability starts as a reusable module inside the `ati-ph` modular monolith
+The capability is currently a reusable module inside the `ati-ph` modular monolith.
 
-It becomes a formal shared platform only after a second real production consumer proves that the contract is stable and shared ownership is justified
+It becomes a shared platform only after a second production consumer validates the contract and shared ownership is justified.
 
-## 2. Boundary
+## 2. Current state
+
+Implemented:
+
+- `EmailMessage` contract
+- sender identity separate from transport
+- transport registry
+- static route resolver
+- STREAM transport
+- generic SMTP transport
+- deterministic Message-ID
+- idempotency header
+- Nodemailer security baseline
+- file and URL attachment access disabled
+- NotificationJob delivery attempts
+- provider/provider message ID evidence
+- claim leases
+- retry ceiling
+- exponential retry backoff
+- `RETRYABLE`, `TERMINAL`, and `OUTCOME_UNKNOWN`
+- expired-lease recovery
+- fail-closed unknown outcome
+- frozen governed Public Holiday email content
+- content SHA-256 verification
+- approval hash over the exact frozen delivery content
+- explicit gated manual SMTP connectivity test
+
+Still gated or future:
+
+- automatic production SMTP NotificationJob execution
+- provider fallback
+- dynamic database provider registry
+- provider HTTP API adapters
+- bounce/NDR event ingestion
+- delivery-event reconciliation
+- manual remediation UX for unknown outcomes
+- formal shared Email Delivery Platform extraction
+
+## 3. Ownership boundary
 
 Public Holiday owns:
 
-- Holiday eligibility
-- Client and service-team subscription matching
-- Notification policy selection
-- Holiday-specific recipient routing
-- Notification-run approval policy
-- Business snapshot and correlation to source holiday data
+- holiday eligibility
+- client/service-team subscription matching
+- holiday-specific routing
+- notification policy selection
+- planning and business approval requirements
 
 Notification owns:
 
-- Email template versioning
-- Placeholder validation
-- Rendered subject and body
-- Frozen recipient snapshot
-- Provider-neutral message envelope
-- Preview behavior
-
-Email Delivery owns:
-
-- Provider registry
-- Provider routing
-- Transport adapter selection
-- Provider capability metadata
-- Provider attempt history
-- Transport error classification
-- Provider acceptance evidence
-- Bounce or NDR correlation where supported
-- Provider-level health evidence
-- Safe provider fallback rules
+- governed template selection
+- placeholder rendering
+- frozen subject/body content
+- frozen recipient snapshot
+- durable notification job
+- schedule snapshot
+- approval hash integration
 
 Scheduling and Execution owns:
 
-- Due-work claiming
-- Worker lease recovery
-- Retry timing
-- Dead-letter handling
-- Kill switch
-- Idempotent execution mechanics
+- `PLANNED -> DUE`
+- due-work claim
+- processing lease
+- retry timing
+- expired-lease recovery
+- terminal failure state
 
-The Public Holiday domain must not read provider credentials or contain provider-specific send logic
+Email Delivery owns:
 
-## 3. Logical Architecture
+- sender identity
+- transport route
+- SMTP/STREAM adapter
+- provider acceptance result
+- transport-level message ID
+- transport security controls
 
-```mermaid
-flowchart TD
-    PH["Public Holiday Workflow"] --> NOTIF["Notification Engine"]
-    NOTIF --> EXEC["Scheduling and Execution"]
-    EXEC --> EMAIL["Email Delivery Engine"]
-    EMAIL --> ROUTER["Provider Router"]
-    ROUTER --> REG["Provider Registry"]
-    REG --> SMTP["Generic SMTP Adapter"]
-    REG --> API["Provider API Adapters"]
-    SMTP --> RELAY["Corporate SMTP / SMTP2GO / MailerSend / Elastic Email / Postal SMTP"]
-    API --> SPECIFIC["Microsoft Graph / provider-specific HTTP API"]
-```
+Public Holiday business code must not read provider credentials or contain provider-specific send logic.
 
-Provider names in this document are examples of compatible targets, not procurement commitments
-
-No paid provider is a mandatory architecture dependency
-
-## 4. Adapter Model
-
-Adapter implementation is trusted application code
-
-Provider configuration is runtime data
-
-The application must never load arbitrary adapter source code from the database
-
-Conceptual contract:
+## 4. Current logical architecture
 
 ```text
-send(message, providerContext) -> deliveryResult
-classifyError(providerError) -> deliveryClassification
-checkHealth(providerContext) -> healthEvidence
-consumeDeliveryEvent(providerEvent) -> correlatedDeliveryEvent
+Holiday occurrence
+→ client/subscription matching
+→ schedule resolution
+→ NotificationJob commit
+→ frozen recipients/rules/content
+→ maker-checker when required
+→ PLANNED
+→ scheduler
+→ DUE
+→ worker
+→ claim + delivery attempt
+→ Email Delivery Engine
+→ STREAM today for job execution
+
+Manual SMTP connectivity
+→ explicit test command
+→ Email Delivery Engine
+→ generic SMTP
+→ approved same-domain test recipient
 ```
 
-### 4.1 Generic SMTP adapter
+Automatic SMTP job execution is intentionally not connected yet.
 
-The first transport adapter should be generic SMTP because it can work with many SMTP-compatible relays without changing business code
+## 5. Durable NotificationJob contract
 
-Provider changes within the SMTP adapter type are configuration changes rather than source-code changes
+Current job data includes:
 
-Examples of possible SMTP targets:
+- business idempotency key
+- holiday occurrence
+- client subscription
+- notification policy version
+- global/client schedule source
+- planned date/time/timezone
+- recipient snapshot
+- rule snapshot
+- governed rendered content snapshot
+- content SHA-256
+- automatic-send flag
+- retry ceiling
+- attempt count
+- retry timestamp
+- sent/failed timestamps
 
-- Existing corporate SMTP relay
-- SMTP2GO
-- MailerSend
-- Elastic Email
-- Self-hosted Postal
-- Another approved SMTP relay
+Existing jobs created before the governed-content migration are intentionally not backfilled.
 
-The selected provider must still satisfy Operations, security, sender-domain, deliverability, and volume requirements
+They must not silently inherit a later email template.
 
-### 4.2 Provider-specific adapters
+## 6. Governed email content
 
-A provider-specific adapter is added only when required capability cannot be expressed safely through the generic SMTP contract
+The active default Public Holiday template is grounded in the supplied workbook `Email Template` sheet, `All / Default / Active`.
 
-Examples:
-
-- Microsoft Graph
-- Provider HTTP API
-- Provider-specific webhook or event API
-
-Adding a provider-specific adapter must not change the Public Holiday business contract
-
-## 5. Dynamic Provider Registry
-
-Provider records are configuration, not hardcoded business logic
-
-Conceptual provider configuration:
+Subject:
 
 ```text
-email_provider
---------------
-id
-code
-display_name
-adapter_type
-status
-priority
-secret_ref
-configuration
-capabilities
-created_at
-updated_at
+ATI - [Client Name] Public Holiday Reminder - [PH Name] - [Date Period]
 ```
 
-`secret_ref` points to an approved secret store
+The rendered subject and HTML are frozen at plan commit.
 
-Credentials are never stored directly in provider configuration JSON, source code, logs, audit metadata, or rendered artifacts
+Approval includes the exact frozen content in its deterministic content hash.
 
-Example adapter types:
+The worker validates the frozen content checksum before composition.
+
+The current active default workbook row does not define an attachment contract, so the implementation does not invent one.
+
+## 7. Generic SMTP adapter
+
+Current configuration:
 
 ```text
-SMTP
-MICROSOFT_GRAPH
-PROVIDER_HTTP_API
+host
+port
+secure
+requireTLS
+username/password optional pair
+connection timeout
 ```
 
-Example capabilities:
+Security controls:
+
+- TLS mode explicit
+- `disableFileAccess=true`
+- `disableUrlAccess=true`
+- no provider-specific code in Public Holiday
+- credentials from environment secrets
+- no automatic provider fallback
+
+SMTP-compatible providers can reuse this adapter.
+
+## 8. STREAM adapter
+
+STREAM is an in-memory transport used for safe technical validation.
+
+It does not open a network connection.
+
+Current worker behavior:
 
 ```text
-SEND
-HTML
-PLAIN_TEXT
-ATTACHMENT
-PROVIDER_MESSAGE_ID
-DELIVERY_EVENT
-BOUNCE_EVENT
-NDR_CORRELATION
+EMAIL_DELIVERY_MODE=STREAM
+→ worker may claim eligible DUE jobs
+→ message composed from frozen content
+→ STREAM transport accepts in memory
+→ durable attempt completion executes
 ```
 
-The capability matrix prevents the router from selecting a provider that cannot satisfy the requested message contract
+Because durable state changes, STREAM worker execution must use an appropriate local/test database.
 
-## 6. Dynamic Routing
+## 9. Retry and lease recovery
 
-Routing policy is also runtime configuration
-
-Conceptual model:
+Current failure classes:
 
 ```text
-email_route
------------
-id
-consumer_code
-notification_type
-provider_id
-priority
-status
-effective_from
-effective_to
+RETRYABLE
+TERMINAL
+OUTCOME_UNKNOWN
 ```
+
+`retryCeiling` means number of retries after the first attempt.
 
 Example:
 
 ```text
-PUBLIC_HOLIDAY + HOLIDAY_NOTICE
-→ SMTP_PRIMARY
-→ SMTP_SECONDARY
+retryCeiling = 3
+attempt 1 fails
+→ retry 1
+
+attempt 2 fails
+→ retry 2
+
+attempt 3 fails
+→ retry 3
+
+attempt 4 fails
+→ terminal failure
 ```
 
-The first implementation does not require sophisticated routing dimensions
+Backoff starts at 60 seconds and grows exponentially with a 3600-second cap.
 
-Routing becomes more advanced only when an actual use case requires additional dimensions such as consumer, message class, region, sender identity, or provider capability
+Missing retry ceiling fails safe to zero automatic retries.
 
-## 7. Provider Switching
+`TERMINAL` and `OUTCOME_UNKNOWN` never auto-retry.
 
-Provider switching is allowed without redeploy when:
+Expired claims are auto-retryable only when the durable attempt is marked `leaseRetrySafe=true`.
 
-- The replacement provider uses an already implemented adapter type
-- Required capabilities are satisfied
-- Required sender and domain configuration is approved
-- Secret references are valid
-- The route is active
-- Operational validation has passed
+For a future SMTP transport, `leaseRetrySafe` must remain false unless transport/provider idempotency proves duplicate delivery cannot occur.
 
-Example:
+## 10. Manual SMTP connectivity slice
+
+Manual SMTP testing is intentionally separate from notification jobs.
+
+Command:
+
+```cmd
+npm run email:smtp:test -- --send
+```
+
+Safety requirements:
+
+- SMTP mode
+- explicit test enable flag
+- explicit test recipient
+- explicit `--send`
+- test-recipient domain must match sender domain
+
+The script does not access Prisma or NotificationJob.
+
+A successful test validates SMTP connectivity/provider acceptance only.
+
+It does not unlock automatic SMTP job delivery.
+
+See `docs/LOCAL-EMAIL-TESTING.md`.
+
+## 11. Google Workspace direction
+
+Google Workspace Admin documentation currently recommends SMTP relay for apps/devices.
+
+Production candidate:
 
 ```text
-SMTP2GO_PRIMARY
-adapter_type = SMTP
-
-MAILERSEND_PRIMARY
-adapter_type = SMTP
+smtp-relay.gmail.com
+587
+TLS
 ```
 
-Switching between these records can be a configuration change because both use the same trusted SMTP adapter
-
-Switching to an adapter type that does not yet exist still requires code, tests, review, and deployment
-
-## 8. Safe Fallback
-
-Provider fallback must not be treated as a simple retry against another vendor
-
-A timeout does not prove that a provider failed to accept the message
-
-Automatic fallback is permitted only when the platform has evidence that the previous provider did not accept the logical message
-
-Required outcome classes:
+Developer direct-SMTP example:
 
 ```text
-FAILED_BEFORE_ACCEPTANCE
-DEFINITIVE_PROVIDER_REJECTION
-RECIPIENT_PERMANENT_FAILURE
-ACCEPTED
-UNKNOWN_OUTCOME
+smtp.gmail.com
+587
+TLS
+full Workspace email address
+approved application credential / App Password when account policy permits
 ```
+
+Normal Google login passwords must not be used.
+
+Official references:
+
+- https://support.google.com/a/answer/176600
+- https://support.google.com/accounts/answer/185833
+
+ATI IT owns relay policy, IP authorization, sender restrictions, and credential policy.
+
+## 12. Fallback safety
+
+No automatic provider fallback exists today.
+
+A timeout is not proof that a provider failed to accept a message.
+
+Future fallback can occur only with explicit evidence that duplicate delivery cannot result.
 
 Rules:
 
-- `FAILED_BEFORE_ACCEPTANCE` may use an approved fallback route
-- `DEFINITIVE_PROVIDER_REJECTION` may use a fallback only when the rejection is provider-specific rather than recipient-specific
-- `RECIPIENT_PERMANENT_FAILURE` does not switch provider automatically
-- `ACCEPTED` never switches provider
-- `UNKNOWN_OUTCOME` never switches provider automatically
-
-An `UNKNOWN_OUTCOME` requires reconciliation or a provider-specific idempotency mechanism before another transport attempt is permitted
-
-## 9. Platform-Owned Idempotency
-
-The logical message identity belongs to the Email Delivery Engine, not to a provider
-
-The same platform idempotency key is retained across delivery attempts and provider changes
-
-Conceptual identity includes the frozen notification job and message snapshot
-
-Provider attempt identity is separate:
-
 ```text
-logical message
-    ├── attempt 1 → provider A
-    └── attempt 2 → provider B
+ACCEPTED
+→ never fallback
+
+OUTCOME_UNKNOWN
+→ never automatic fallback
+
+recipient permanent rejection
+→ do not switch provider automatically
+
+known pre-acceptance transport failure
+→ future approved fallback may be considered
 ```
 
-Only one logical successful delivery may exist for the same idempotency key
+## 13. Delivery evidence
 
-Provider failover must therefore reuse the existing notification job and frozen snapshot rather than create a second logical notification
+Provider acceptance is not final recipient delivery.
 
-## 10. Delivery Evidence
+Current durable evidence can include:
 
-Provider acceptance and final delivery are separate concepts
+- attempt number
+- claimed time
+- lease expiry
+- completed time
+- transport/provider code
+- provider message ID
+- failure class
+- sanitized error code/message
+- retry timing
+- final job state
 
-The platform records:
+Future bounce/NDR correlation remains a separate capability.
 
-- Provider selected
-- Adapter type
-- Attempt number
-- Attempt start and finish
-- Provider request identifier when available
-- Provider message identifier when available
-- Acceptance or rejection
-- Sanitized error classification
-- Retry eligibility
-- Bounce or NDR evidence where available
-- Final platform interpretation
+## 14. Current production gate
 
-The platform must not label an SMTP or HTTP acceptance response as confirmed recipient delivery
+Production-safe default:
 
-## 11. Proposed Persistence
-
-The following tables are Phase 3 target design and are not part of the current Phase 1 schema:
-
-```text
-email_providers
-email_routes
-notification_jobs
-delivery_attempts
-delivery_events
+```env
+EMAIL_DELIVERY_MODE=DISABLED
+EMAIL_SMTP_TEST_ENABLED=false
 ```
 
-The complete physical schema is finalized during Phase 3 detailed design
-
-All tables remain in the physical PostgreSQL `public` schema while module ownership remains explicit in application code
-
-## 12. Security
-
-- Provider credentials are referenced through an approved secret store
-- Secrets are resolved only inside the Email Delivery boundary
-- Public Holiday business code never receives raw provider credentials
-- Provider configuration changes require authorization and audit
-- Sender identity changes require authorization and audit
-- Provider route changes require authorization and audit
-- Sensitive provider responses are sanitized before logging or audit persistence
-- TLS is required for external transport
-- SMTP authentication and TLS mode are explicit configuration
-- Provider-specific webhooks require authenticity validation where supported
-
-## 13. Operational Controls
-
-Phase 3 must include:
-
-- Provider enable and disable control
-- Kill switch for new sends
-- Health evidence
-- Delivery attempt history
-- Transient retry
-- Permanent failure handling
-- Dead-letter handling
-- Manual retry with reason
-- Provider-route audit history
-- Alerting for provider outage or abnormal failure rate
-
-Health checks may influence routing before a send starts
-
-A health check must never be used as proof that a send with an unknown outcome was not accepted
-
-## 14. Initial Provider Strategy
-
-The recommended order is:
+Current worker:
 
 ```text
-1. Implement Generic SMTP Adapter
-2. Use an approved no-additional-license SMTP route when available
-3. Otherwise configure an approved SMTP-compatible provider for pilot
-4. Add Provider Registry and Route configuration
-5. Add safe fallback only after outcome classification is proven
-6. Add provider-specific API adapters only for required capabilities
+STREAM
+→ claim notification jobs
+
+SMTP
+→ log that external delivery is gated
+→ do not claim notification jobs
 ```
 
-SMTP2GO is a valid example of an initial SMTP-compatible provider
+Removing the SMTP worker gate requires a separate reviewed slice.
 
-Existing corporate SMTP, MailerSend, Elastic Email, or Postal may also satisfy the same generic SMTP adapter contract if approved
-
-Microsoft Graph remains optional and is not a required dependency
-
-No provider is selected solely because it currently offers a free plan
-
-Operational suitability, sender-domain control, deliverability, security, rate limits, and support requirements still apply
-
-## 15. Platform Evolution
-
-### Stage 1 — Reusable module
-
-- Lives inside `ati-ph`
-- First consumer is Public Holiday Notification
-- Provider-neutral interface is explicit
-- Provider configuration is dynamic
-- No independent service contract
-
-### Stage 2 — Shared internal capability
-
-Triggered only after a second real application consumes the same delivery contract
+## 15. Before production SMTP unlock
 
 Required:
 
-- Named platform owner
-- Versioned consumer contract
-- Independent authorization model
-- Shared provider registry
-- Shared observability
-- Consumer isolation
-- Migration plan from in-process calls to shared API or events where required
+- approved production sender
+- approved SMTP route/relay
+- approved secret-management path
+- controlled real-recipient pilot
+- partial SMTP acceptance policy
+- outcome-unknown remediation path
+- Operations content approval
+- attachment contract confirmed if required
+- monitoring/runbook
+- kill-switch behavior
+- documented rollback
 
-### Stage 3 — Email Delivery Platform
+## 16. Platform evolution
 
-Independent deployment is justified only when scale, reliability, security, or release independence requires it
+### Stage 1 — reusable module
 
-At that point applications may consume:
+Current state.
 
-```text
-Public Holiday
-HRIS
-Finance
-Fare Filing
-SLA Monitoring
-        ↓
-Email Delivery Platform
-        ↓
-Dynamic Provider Router
-```
+Lives inside `ati-ph`.
 
-Platform extraction is an evidence-based evolution, not a prerequisite for Phase 3
+### Stage 2 — shared internal capability
 
-## 16. Acceptance Criteria
+Triggered by a second real application using the same delivery contract.
 
-The Email Delivery Engine is ready for controlled production use when:
+Requires:
 
-- Public Holiday can submit a provider-neutral frozen email message
-- Generic SMTP adapter passes contract tests
-- Provider selection is loaded from runtime configuration
-- Provider credentials are resolved through secret references
-- Switching between two providers using the same adapter type does not require business-code changes
-- Provider attempts remain traceable to one logical message
-- Repeated execution cannot create duplicate logical sends
-- Accepted messages are never automatically resent through another provider
-- Unknown outcomes are never automatically failed over
-- Permanent recipient failures are not retried through another provider
-- Transient pre-acceptance provider failures follow the approved route policy
-- Kill switch blocks new sends
-- Route changes and manual retries are audit-recorded
-- Provider acceptance is not presented as confirmed recipient delivery
-- Controlled pilot is accepted by Operations and IT
+- named platform owner
+- shared authorization model
+- shared provider registry
+- consumer isolation
+- shared observability
+- versioned consumer contract
 
-## 17. Related Documents
+### Stage 3 — independently deployed platform
 
-- `PROPOSAL.md`
+Only when scale, reliability, security, or release independence justify extraction.
+
+## 17. Related documents
+
+- `README.md`
 - `architecture.md`
 - `plan.md`
+- `PROPOSAL.md`
+- `docs/LOCAL-EMAIL-TESTING.md`
 - `docs/ACCESS-CONTROL.md`
+- `docs/DATABASE-SCHEMA-BOUNDARIES.md`

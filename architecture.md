@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Phase 0 auth foundation and Phase 1 governed import + calendar-region administration implemented; remaining gates stay open |
-| Version | 0.3.17 |
-| Date | 2026-08-17 |
+| Status | Governed import, routing, notification planning/approval, durable scheduling, retry/lease recovery, governed email snapshots, STREAM delivery, and gated manual SMTP test implemented; automatic SMTP remains gated |
+| Version | 0.4.0 |
+| Date | 2026-08-19 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
 | Web platform | Next.js 16.3.1 App Router, React 19, TypeScript |
@@ -30,6 +30,44 @@ No paid email provider is a mandatory architecture dependency
 The Public Holiday codebase, database, worker, authorization rules, and business operations remain independently owned. Its initial browser delivery is through ATI One's internal same-origin proxy and iframe path. ATI One does not participate in Public Holiday business logic, but it is the initial browser entry point and delivery gateway
 
 As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID and client credential configuration as ATI One. It still creates its own namespaced application session. Keycloak is the identity and authentication authority only: ATI PH does not derive business authorization from Keycloak realm roles. Application roles, permissions, and menu visibility are resolved from ATI PH-owned PostgreSQL records. The role-permission catalog, maker-checker rules, and application access-control invariants are documented in [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md). This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
+
+## 1.1 Implementation snapshot — 2026-08-19
+
+The executable system has advanced beyond the original Phase 1 baseline
+
+Implemented boundaries now include:
+
+- governed client/service-team/subscription/contact/TO/CC routing
+- versioned notification policy plus global/client schedule resolution
+- explainable plan preview and durable commit
+- maker-checker notification approval
+- immutable NotificationJob recipient, rule, schedule, and governed rendered-content snapshots
+- content SHA-256 integrity verification
+- due scheduler
+- worker lease claim and recovery
+- retry ceiling and exponential retry backoff
+- explicit RETRYABLE, TERMINAL, and OUTCOME_UNKNOWN failure classes
+- provider-neutral Email Delivery Engine
+- STREAM adapter
+- generic SMTP adapter
+- manual same-domain SMTP connectivity test behind explicit gates
+
+Current safety boundary:
+
+```text
+STREAM
+→ worker can execute eligible jobs
+
+SMTP
+→ transport can be manually connectivity-tested
+→ worker does not claim NotificationJobs
+```
+
+The active default Public Holiday email content is grounded in the supplied workbook and is frozen at notification-plan commit time
+
+Automatic production SMTP, provider fallback, bounce/NDR ingestion, and platform extraction remain future gates
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md` and `docs/LOCAL-EMAIL-TESTING.md`
 
 ## 2. Context
 
@@ -71,7 +109,7 @@ flowchart TD
 | Web UI and HTTP boundary | Next.js 16.3.1 App Router with React Server Components and Route Handlers |
 | UI design contract | ATI One PH Notification mockup and locally owned ATI design-system tokens/primitives; no runtime import from `ai-portal` |
 | Language | TypeScript in strict mode |
-| Persistence | PostgreSQL with Prisma migrations in one physical `public` schema; module ownership is enforced in application code and contracts |
+| Persistence | One PostgreSQL database with bounded-context schemas (`access`, `approval`, `governance`, `holiday`, `import`, `notification`, `routing`) managed by Prisma migrations |
 | Background execution | Separate long-running worker process built from the same repository and domain packages |
 | Identity protocol | OpenID Connect Authorization Code Flow with PKCE S256 using `openid-client` |
 | Browser session | Opaque host-only cookie referencing an encrypted server-side database session |

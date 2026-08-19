@@ -62,6 +62,8 @@ const serverEnvSchema = z.object({
     .min(1_000)
     .max(120_000)
     .default(10_000),
+  EMAIL_SMTP_TEST_ENABLED: z.enum(["true", "false"]).default("false"),
+  EMAIL_SMTP_TEST_RECIPIENT: z.email().optional(),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_DELIVERY_MODE !== "DISABLED" && !env.EMAIL_FROM_ADDRESS) {
     ctx.addIssue({
@@ -82,6 +84,13 @@ const serverEnvSchema = z.object({
       code: "custom",
       path: [env.EMAIL_SMTP_USER ? "EMAIL_SMTP_PASSWORD" : "EMAIL_SMTP_USER"],
       message: "EMAIL_SMTP_USER and EMAIL_SMTP_PASSWORD must be configured together",
+    });
+  }
+  if (env.EMAIL_SMTP_TEST_ENABLED === "true" && !env.EMAIL_SMTP_TEST_RECIPIENT) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["EMAIL_SMTP_TEST_RECIPIENT"],
+      message: "EMAIL_SMTP_TEST_RECIPIENT is required when EMAIL_SMTP_TEST_ENABLED=true",
     });
   }
 });

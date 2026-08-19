@@ -3,14 +3,12 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Active |
-| Version | 1.0 |
-| Date | 2026-08-17 |
+| Version | 1.1 |
+| Date | 2026-08-19 |
 | Scope | ATI PH application authorization |
 | Executable catalog | `src/auth/authorization-catalog.ts` |
 
-## 1. Authority Boundary
-
-ATI PH separates authentication from application authorization
+## 1. Authority boundary
 
 ```text
 Authentication
@@ -23,110 +21,140 @@ Role
 → bundle of permissions
 
 Backend enforcement
-→ permission checks, not role-name checks
+→ permission checks
 ```
 
-Keycloak is the identity and authentication authority. ATI PH does not derive business authorization from Keycloak realm roles
+Keycloak proves identity.
 
-ATI PH owns application roles, permissions, role assignments, permission assignments, and permission-gated menu visibility in PostgreSQL
+ATI PH owns application roles, permissions, role assignments, and permission-gated menu visibility.
 
-The executable role and permission catalog is `src/auth/authorization-catalog.ts`. This document explains that contract for operators, reviewers, and maintainers
+## 2. System roles
 
-## 2. System Roles
+| Code | Purpose |
+| --- | --- |
+| `ADMINISTRATOR` | Full ATI PH administration |
+| `OPERATOR` | Operational import, routing read, policy read, planning, and plan commit |
+| `APPROVER` | Maker-checker import and notification-plan approval |
+| `AUDITOR` | Read-only governed operational visibility |
 
-| Code | Name | Purpose |
-| --- | --- | --- |
-| `ADMINISTRATOR` | Administrator | Full ATI PH application administration |
-| `OPERATOR` | Operator | Operational import and review activities |
-| `APPROVER` | Approver | Maker-checker approval activities |
-| `AUDITOR` | Auditor | Read-only operational and audit visibility |
+A user can hold multiple roles.
 
-A user may hold more than one ATI PH role. Effective access is the union of permissions granted by the user's active roles
+Maker-checker still compares user identity, so role combinations never allow a user to approve their own request.
 
-## 3. System Permissions
+## 3. System permissions
 
-| Permission | Name | Current capability |
-| --- | --- | --- |
-| `calendar_region.read` | Read calendar regions | View calendar regions and aliases |
-| `calendar_region.manage` | Manage calendar regions | Create and update calendar regions and aliases |
-| `import.read` | Read imports | View governed import batches, staging, validation evidence, reports, and registered source evidence |
-| `import.create` | Create imports | Upload governed workbooks, create imports, correct staging where allowed, acknowledge warnings, and submit an eligible batch for approval |
-| `import.approve` | Approve imports | Approve or reject submitted imports and publish approved canonical holiday data |
+### Calendar
 
-## 4. Role-Permission Matrix
+- `calendar_region.read`
+- `calendar_region.manage`
 
-| Role | Region Read | Region Manage | Import Read | Import Create | Import Approve |
-| --- | --- | --- | --- | --- | --- |
-| Administrator | Yes | Yes | Yes | Yes | Yes |
-| Operator | Yes | No | Yes | Yes | No |
-| Approver | Yes | No | Yes | No | Yes |
-| Auditor | Yes | No | Yes | No | No |
+### Governed import
 
-Canonical code mapping:
+- `import.read`
+- `import.create`
+- `import.approve`
 
-```text
-ADMINISTRATOR
-→ calendar_region.read
-→ calendar_region.manage
-→ import.read
-→ import.create
-→ import.approve
+### Client routing
 
-OPERATOR
-→ calendar_region.read
-→ import.read
-→ import.create
+- `client.read`
+- `client.manage`
 
-APPROVER
-→ calendar_region.read
-→ import.read
-→ import.approve
+### Notification policy
 
-AUDITOR
-→ calendar_region.read
-→ import.read
-```
+- `notification_policy.read`
+- `notification_policy.manage`
 
-## 5. Maker-Checker Invariants
+### Notification planning
 
-For governed import approval:
+- `notification_plan.read`
+- `notification_plan.commit`
+- `notification_plan.approve`
 
-- Submission requires `import.create`
-- Approval and rejection require `import.approve`
-- The user who requested approval cannot decide the same approval request
-- Approval applies only to the frozen submitted content hash
-- A rejected batch is unfrozen for correction and resubmission
-- An approved batch remains frozen for canonical publication
-- Canonical publication currently requires `import.approve`
+## 4. Current role mapping
 
-Role combinations do not bypass maker-checker identity separation. A user who has both `import.create` and `import.approve` still cannot approve their own request
+### ADMINISTRATOR
 
-## 6. Menu Visibility and Enforcement
+- all current system permissions
 
-Menu visibility is permission-driven presentation only
+### OPERATOR
 
-Current menu gates include:
+- `calendar_region.read`
+- `import.read`
+- `import.create`
+- `client.read`
+- `notification_policy.read`
+- `notification_plan.read`
+- `notification_plan.commit`
 
-| Menu | Required permission |
+### APPROVER
+
+- `calendar_region.read`
+- `import.read`
+- `import.approve`
+- `client.read`
+- `notification_policy.read`
+- `notification_plan.read`
+- `notification_plan.approve`
+
+### AUDITOR
+
+- `calendar_region.read`
+- `import.read`
+- `client.read`
+- `notification_policy.read`
+- `notification_plan.read`
+
+The executable mapping in `src/auth/authorization-catalog.ts` is authoritative.
+
+## 5. Maker-checker invariants
+
+### Governed import
+
+- submit requires `import.create`
+- decide requires `import.approve`
+- requester cannot decide the same request
+- approval binds to frozen submitted content hash
+- rejection returns the resource to correction/resubmission flow
+- canonical publication requires approved frozen content
+
+### Notification plan
+
+- commit requires `notification_plan.commit`
+- approval decision requires `notification_plan.approve`
+- requester cannot decide the same notification approval
+- approval binds to the deterministic frozen job hash
+- frozen hash includes recipients, rule/schedule data, automatic-send/retry controls, and exact governed email content
+- approval transitions `WAITING_APPROVAL -> PLANNED`
+- rejection transitions `WAITING_APPROVAL -> CANCELLED`
+
+## 6. Menu visibility
+
+Current governed menu gates include:
+
+| Menu | Permission |
 | --- | --- |
 | Operations | `import.read` |
 | Imports | `import.read` |
-| Administration | `calendar_region.read` |
+| Notification Planning | `notification_plan.read` |
 | Calendar Regions | `calendar_region.read` |
+| Client Routing | `client.read` |
+| Notification Policies | `notification_policy.read` |
 
-Hiding a menu never replaces server-side authorization. Pages and Route Handlers must enforce the required permission independently
+Menu visibility is presentation only.
 
-## 7. Role Assignment
+Every page and Route Handler must independently enforce permission requirements.
 
-A user must exist in ATI PH before a local role can be assigned. In local development this normally means the user has logged in at least once
+## 7. Role assignment
 
-Grant a system role with:
+A user must exist locally before role assignment.
 
-```bash
-npm run authz:grant -- --email user@example.com --role APPROVER
+For local development, sign in once through Keycloak and then run:
+
+```cmd
+npm run authz:grant -- --email user@example.com --role OPERATOR
 ```
 
-Use one of:
+Valid roles:
 
 ```text
 ADMINISTRATOR
@@ -135,16 +163,17 @@ APPROVER
 AUDITOR
 ```
 
-Role assignment changes ATI PH authorization only. It does not create or modify Keycloak realm roles
+Role assignment changes ATI PH authorization only.
 
-## 8. Change Control
+It does not create or modify Keycloak realm roles.
 
-When changing access control:
+## 8. Change control
 
-1. Update `src/auth/authorization-catalog.ts`
-2. Update server-side permission enforcement where capability boundaries change
-3. Update this document in the same change
-4. Update tests that assert role or permission behavior
-5. Verify menu visibility remains presentation-only and cannot bypass backend checks
+When authorization changes:
 
-Do not hardcode business authorization against role names when a permission check can express the capability boundary
+1. update `src/auth/authorization-catalog.ts`
+2. update server-side permission checks
+3. update menu gates if required
+4. update this document in the same change
+5. update permission tests
+6. keep maker-checker identity separation intact

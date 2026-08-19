@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Solution proposal for Operations client review |
-| Version | 0.2.1 |
-| Date | 2026-08-17 |
+| Status | Living solution proposal; implementation status synchronized through controlled email-delivery foundation |
+| Version | 0.2.2 |
+| Date | 2026-08-19 |
 | Prepared by | DSD Team |
 | Scope | Internal Operations Public Holiday Notification Workflow |
 | Proposed architecture | Modular monolith with asynchronous worker |
@@ -34,7 +34,7 @@ The solution shall use:
 
 The current workbook remains useful as a source for requirements, migration, and acceptance comparison, but it must not remain the runtime database or workflow engine
 
-As part of the solution-design work, the DSD Team has already established the application foundation and the governed holiday import, review, approval, and canonical publication baseline. Client routing, notification planning, output generation, controlled email delivery, and trusted automation remain subsequent solution phases and are not represented as completed capabilities in this proposal
+As part of the solution-design work, the DSD Team has now established the application foundation, governed holiday import and publication, client routing, notification policy and scheduling configuration, explainable notification planning, durable committed notification jobs, maker-checker notification approval, due scheduling, worker delivery leases, retry and recovery controls, a provider-neutral Email Delivery Engine, governed workbook-derived email content snapshots, safe STREAM delivery validation, and an explicitly gated manual SMTP connectivity test. Automatic production SMTP NotificationJob delivery, provider failover, bounce/NDR processing, and trusted automation remain controlled future gates and are not represented as production-enabled capabilities
 
 ## 2. Current Workbook Assessment
 
