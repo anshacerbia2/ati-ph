@@ -28,7 +28,7 @@ export default async function NotificationPlanningPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        description="Preview and commit durable notification jobs, then govern approval before scheduling. Delivery execution contracts are prepared, but no provider or email sender is wired yet."
+        description="Preview and commit durable notification jobs, then govern approval before scheduling. Safe STREAM delivery is available for technical validation; external SMTP delivery remains gated."
         eyebrow="Operations"
         title="Notification planning"
       />

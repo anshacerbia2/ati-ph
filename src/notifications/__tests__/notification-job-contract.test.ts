@@ -65,13 +65,24 @@ describe("notification job scheduler foundation", () => {
   });
 
   it("keeps scheduler and delivery as separate boundaries", () => {
-    expect(worker).toContain(
-      "notification due scheduler; no email delivery",
+    expect(scheduler).not.toContain(
+      "EmailDeliveryEngine",
     );
-    expect(worker).not.toContain("smtp");
+    expect(scheduler).not.toContain(
+      "claimDueNotificationJobs",
+    );
+    expect(worker).toContain(
+      "promoteDueNotificationJobs",
+    );
+    expect(worker).toContain(
+      "executeStreamNotificationDelivery",
+    );
+    expect(worker).toContain(
+      "notification external delivery remains gated",
+    );
     expect(worker).not.toContain("sendMail");
     expect(planningPage).toContain(
-      "no provider or email sender is wired yet",
+      "external SMTP delivery remains gated",
     );
   });
 

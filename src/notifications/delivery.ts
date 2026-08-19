@@ -26,6 +26,7 @@ export type NotificationDeliveryClaim = {
   jobId: string;
   attemptNumber: number;
   leaseExpiresAt: Date;
+  idempotencyKey: string;
   recipientSnapshot: Prisma.JsonValue;
   ruleSnapshot: Prisma.JsonValue;
   retryCeiling: number | null;
@@ -92,6 +93,7 @@ export async function claimDueNotificationJobs(
             status: true,
             automaticSendAllowed: true,
             attemptCount: true,
+            idempotencyKey: true,
             recipientSnapshot: true,
             ruleSnapshot: true,
             retryCeiling: true,
@@ -132,6 +134,7 @@ export async function claimDueNotificationJobs(
         jobId: job.id,
         attemptNumber,
         leaseExpiresAt,
+        idempotencyKey: job.idempotencyKey,
         recipientSnapshot: job.recipientSnapshot,
         ruleSnapshot: job.ruleSnapshot,
         retryCeiling: job.retryCeiling,

@@ -44,11 +44,15 @@ describe("notification approval and delivery contract", () => {
     expect(delivery).not.toContain("sendMail");
   });
 
-  it("keeps the delivery claim contract dormant until a provider slice wires it", () => {
-    expect(worker).not.toContain(
+  it("wires the delivery claim contract without coupling notification state to SMTP", () => {
+    expect(worker).toContain(
       "claimDueNotificationJobs",
     );
-    expect(worker).toContain("no email delivery");
+    expect(worker).toContain(
+      "executeStreamNotificationDelivery",
+    );
+    expect(delivery.toLowerCase()).not.toContain("smtp");
+    expect(delivery).not.toContain("sendMail");
   });
 
   it("uses a dedicated maker-checker permission for notification approval", () => {

@@ -32,6 +32,18 @@ const serverEnvSchema = z.object({
     .min(1)
     .max(500)
     .default(100),
+  NOTIFICATION_DELIVERY_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25),
+  NOTIFICATION_DELIVERY_LEASE_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(3600)
+    .default(120),
   EMAIL_DELIVERY_MODE: z.enum(["DISABLED", "STREAM", "SMTP"]).default("DISABLED"),
   EMAIL_SENDER_IDENTITY_CODE: z.string().min(1).default("PH_NOTIFICATION"),
   EMAIL_FROM_ADDRESS: z.email().optional(),
