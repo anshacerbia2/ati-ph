@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Governed import through controlled notification-delivery foundation implemented; production SMTP activation and trusted automation gates remain open |
-| Version | 0.4.0 |
-| Date | 2026-08-19 |
+| Status | Controlled SMTP connectivity and frozen-NotificationJob business-content pilot proven; automatic production SMTP and trusted automation gates remain open |
+| Version | 0.5.0 |
+| Date | 2026-08-20 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -36,13 +36,13 @@ flowchart TD
 
 Foundation work inside Phase 0 establishes the Next.js application, PostgreSQL schema, dedicated worker entry point, ATI One internal-app mount compatibility, and application-owned authentication/session boundary. It must not implement unresolved holiday or notification policy as guessed behavior
 
-## 2.1 Current progress — 2026-08-19
+## 2.1 Current progress — 2026-08-20
 
 Completed delivery slices:
 
 ```text
 Phase 0 foundation
-→ complete baseline
+→ implemented
 
 Governed import/calendar
 → implemented
@@ -78,21 +78,35 @@ STREAM delivery proof
 → implemented
 
 Gated manual SMTP connectivity test
-→ implemented
+→ implemented and provider/inbox verified
+
+Controlled same-domain NotificationJob SMTP business-content pilot
+→ implemented and provider/inbox verified
 ```
+
+The controlled business-content pilot used an existing frozen `PLANNED` NotificationJob, verified its content SHA-256, preserved its subject/body, replaced its frozen client recipients with one same-domain internal ATI recipient, and sent through the real SMTP adapter without claiming or mutating the durable job.
 
 Open production gates:
 
-- actual approved production SMTP relay/credential path
-- controlled real-recipient SMTP pilot
-- automatic SMTP NotificationJob execution
+- ATI IT-approved production SMTP relay/credential path
+- controlled production/client-recipient SMTP pilot scope and authorization
+- automatic SMTP NotificationJob execution by the worker
 - partial SMTP acceptance handling review
 - unknown-outcome operational remediation
 - bounce/NDR ingestion where required
 - production monitoring/runbook
+- kill switch and rollback validation
 - governed output attachment only if Operations confirms one is required
 
-A manual SMTP test is deliberately not equivalent to completing controlled production email delivery
+The following are deliberately not equivalent:
+
+```text
+manual SMTP connectivity
+controlled internal NotificationJob SMTP pilot
+automatic production SMTP
+```
+
+Phase 4 trusted automation has not started.
 
 ## 3. Phase 0 — Contract and Decision Baseline
 
@@ -174,7 +188,7 @@ Completed in the first Phase 1 vertical slice:
 - Multi-region normalization with `Day` and `Tag` explicitly ignored as authoritative input
 - Validation summary in the ATI One-aligned dashboard
 - Audit event and transactional `ImportBatchValidated` outbox event
-- Single Prisma baseline migration `20260815210000_initial_foundation` in PostgreSQL `public`, with native UUID entity identifiers
+- Prisma migration history now materializes bounded-context PostgreSQL schemas `access`, `approval`, `governance`, `holiday`, `import`, `notification`, and `routing`, with native UUID entity identifiers where applicable
 - Database-managed calendar-region registry used by runtime import resolution
 - Administrator-only region and alias create, rename, activate, and deactivate controls with transactional audit events
 - Database-backed in-app navigation strip for the ATI One internal-app frame; ATI One retains global portal chrome while ATI PH menu visibility is permission-filtered and route/API authorization remains independently enforced
@@ -221,41 +235,43 @@ Still pending before the Phase 1 exit gate is complete:
 - Application-owned RBAC for Administrator, Operator, Approver, and Auditor
 - Keycloak remains the identity and authentication authority; ATI PH stores only the local user projection plus application role assignments
 - Internal application entity primary/foreign keys use native PostgreSQL UUID; the verified Keycloak `sub` is stored as `users.externalSubject` and is never used as an ATI PH primary key
-- Role, permission, user-role, role-permission, and menu visibility records are physically stored in PostgreSQL `public` and logically owned by the Authorization module
+- Role, permission, user-role, role-permission, user, session, and menu records are physically stored in PostgreSQL `access` and owned by the Authorization module
 - Backend authorization is permission-based; menu visibility consumes permissions and never acts as an authorization boundary
 - Secure server-side authorization checks on every protected read and mutation
 - Audit events
 - Transactional outbox baseline
 - Artifact download authorization
 
-### Tables introduced
+### Current bounded persistence
 
-Implemented physical tables currently live in PostgreSQL `public`:
+Current physical ownership is no longer a single `public` schema.
 
 ```text
-users
-auth_sessions
-roles
-permissions
-user_roles
-role_permissions
-menus
-file_artifacts
-import_batches
-import_rows
-import_validation_issues
-calendar_regions
-calendar_region_aliases
-approval_requests
-holiday_definitions
-holiday_occurrences
-holiday_occurrence_regions
-holiday_occurrence_dates
-audit_events
-outbox_events
+access
+→ users, auth_sessions, roles, permissions, user_roles, role_permissions, menus
+
+approval
+→ approval_requests
+
+governance
+→ file_artifacts, audit_events, outbox_events
+
+import
+→ import_batches, import_rows, import_validation_issues
+
+holiday
+→ holiday definitions, occurrences, occurrence regions/dates, calendar regions/aliases
+
+routing
+→ clients, service teams, contacts, client subscriptions, subscription recipients
+
+notification
+→ notification schedule policy/version, notification policy/version, NotificationJob, NotificationDeliveryAttempt
 ```
 
-The Phase 1 persistence baseline now includes reusable approval state plus canonical holiday definition, occurrence, region-relation, and expanded occurrence-date lineage. `import_batches` carries `fileSha256`, `businessContentSha256`, `clientPreviewSha256`, `verificationStartedAt`, and `verifiedAt` so exact evidence identity, canonical `Holiday_Master` business identity, and browser-preview integrity remain distinct concerns
+`public` is retained only for Prisma migration bookkeeping.
+
+The persistence model now spans the implemented workflow rather than only the historical Phase 1 baseline.
 
 ### Explicitly excluded
 
@@ -278,158 +294,170 @@ The Phase 1 persistence baseline now includes reusable approval state plus canon
 
 ### Objective
 
-Prove that the application selects exactly the intended client teams and produces the approved output before email is enabled
+Prove exactly who should receive each notification, when the notification should be scheduled, and what frozen business content is approved before external production sending is enabled.
 
-### Scope
+### Current status
 
-#### Public Holiday module
+Implemented:
 
-- Client and service-team configuration
-- Contact and recipient assignment
-- Client subscription by calendar region
-- Notification policy versioning
-- Holiday-to-subscription matching
-- Notification run planning
+- client and service-team configuration
+- contact and TO/CC recipient assignment
+- client subscription by canonical calendar region
+- versioned notification policy
+- global schedule policy with per-client override
+- weekday/weekend filtering
+- deterministic holiday-to-subscription matching
+- explainable notification plan preview
+- durable NotificationJob commit
+- frozen recipient snapshot
+- frozen rule/schedule snapshot
+- governed workbook-derived email subject/body
+- frozen email content SHA-256
+- maker-checker notification approval
+- historical content preservation after commit
 
-#### Notification module
+The active default email template is grounded in the supplied workbook `Email Template` sheet.
 
-- Email template versioning
-- Template precedence
-- Placeholder validation
-- Rendered email preview
-- Recipient snapshot
-- Test-send restricted to internal allow-list only
+Output workbook generation remains gated because the current active business email contract does not define a production attachment/output artifact requirement. The application does not invent one.
 
-#### Artifact module
-
-- Output workbook template versioning
-- Workbook generation from approved template
-- Immutable generated output artifact
-
-### Tables introduced
+### Current physical ownership
 
 ```text
-holiday.client
-holiday.service_team
-holiday.contact
-holiday.client_subscription
-holiday.subscription_recipient
-holiday.notification_policy
-holiday.notification_policy_version
-holiday.notification_run
-communication.email_template
-communication.email_template_version
-communication.template_assignment
-communication.notification_snapshot
-communication.notification_recipient
-artifact.export_template
-artifact.export_template_version
-artifact.notification_run_artifact
+routing
+→ client
+→ service_team
+→ contact
+→ client_subscription
+→ subscription_recipient
+
+notification
+→ notification_schedule_policy
+→ notification_schedule_policy_version
+→ notification_policy
+→ notification_policy_version
+→ notification_job
 ```
 
-### Shadow-mode procedure
+### Exit evidence
 
-1. Publish a representative holiday batch
-2. Plan notifications without external delivery
-3. Compare application-selected recipients with the approved manual result
-4. Compare rendered subject and body with approved manual email
-5. Compare generated workbook with approved output template
-6. Resolve every mismatch as a rule, data, or template defect
-7. Repeat until the result is fully explainable and accepted
+Current planning can produce an explainable durable job where:
 
-### Exit gate
-
-- Every planned recipient is explainable by an active subscription and policy
-- Every output workbook matches the approved template contract
-- Template fallback is deterministic
-- Any conflicting configuration fails visibly
-- Historical preview remains unchanged after master data or template changes
+- client/subscription selection is traceable
+- TO/CC recipients are frozen
+- schedule source/version is frozen
+- governed subject/body is frozen
+- content SHA-256 is frozen
+- approval applies to the exact frozen content
+- later template/master-data changes cannot silently rewrite committed history
 
 ## 6. Phase 3 — Controlled Email Delivery
 
 ### Objective
 
-Enable production email through a provider-neutral delivery capability with traceable attempts, dynamic provider configuration, and safe provider switching
+Prove external email delivery safely through the provider-neutral Email Delivery Engine before automatic client-recipient SMTP execution is allowed.
 
-### Scope
+### Implemented delivery foundation
 
-#### Notification module
+- provider-neutral `EmailMessage`
+- sender identity separated from transport
+- configured route resolver
+- generic SMTP adapter
+- STREAM adapter
+- deterministic Message-ID
+- idempotency header
+- delivery attempt persistence
+- `PLANNED -> DUE -> PROCESSING -> SENT/RETRY_WAIT/FAILED` execution contract
+- worker lease claim and recovery
+- retry ceiling
+- exponential retry backoff
+- RETRYABLE / TERMINAL / OUTCOME_UNKNOWN classification
+- fail-closed unknown outcome
+- frozen content checksum validation
+- worker automatic execution only for STREAM
+- automatic SMTP worker gate
 
-- Provider-neutral frozen message envelope
-- Rendered message and recipient snapshot handoff
-- Test-send request
-- Notification-run approval
-- Approval invalidation when frozen snapshot changes
+### Controlled SMTP validation completed — 2026-08-20
 
-#### Email Delivery Engine
+#### Gate A — SMTP connectivity
 
-- Generic SMTP adapter as the first transport adapter
-- Dynamic provider registry
-- Dynamic provider routing
-- Provider capability metadata
-- Provider secret references
-- Delivery attempt recording
-- Transient, permanent, accepted, and unknown-outcome classification
-- Safe fallback only when the previous provider is proven not to have accepted the message
-- NDR or bounce ingestion where the selected provider supports it
-- Provider-specific API adapters only when a required capability is not available through Generic SMTP
-- Error summary report
-
-#### Scheduling and Execution module
-
-- Due-job claiming
-- Worker lease recovery
-- Exponential retry with jitter
-- Platform-owned idempotency across provider attempts
-- Dead-letter handling
-- Manual retry with reason
-- Kill switch
-
-### Proposed tables
-
-Logical ownership remains separate even though the modular monolith uses PostgreSQL `public`
-
-```text
-email_providers
-email_routes
-notification_jobs
-delivery_attempts
-delivery_events
+```cmd
+npm run email:smtp:test -- --send
 ```
 
-The physical Phase 3 schema is finalized during implementation and is not claimed as part of the current Phase 1 baseline
+Proven:
 
-### Initial provider strategy
+- current Google direct-SMTP credentials accepted
+- TLS/host/port accepted
+- sender identity accepted
+- same-domain internal ATI recipient accepted
+- message arrived in inbox
 
-- Prefer an approved existing corporate SMTP relay when it satisfies the operating requirements
-- Otherwise configure an approved SMTP-compatible provider for the pilot
-- SMTP2GO is a valid example of an SMTP-compatible initial provider
-- MailerSend, Elastic Email, Postal, or another approved SMTP relay can use the same Generic SMTP Adapter
-- Microsoft Graph remains an optional provider-specific adapter, not a required dependency
-- No paid provider is mandatory in the architecture
-- Provider selection must consider sender-domain control, deliverability, security, volume, limits, and support requirements rather than free-tier availability alone
+#### Gate B — frozen NotificationJob business-content pilot
 
-### Pilot rules
+```cmd
+npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
+```
 
-- Start with limited clients or an internal recipient group
-- Require explicit run approval
-- Require test-send completion
-- Enable a kill switch that stops new sends
-- Do not label provider acceptance as confirmed delivery
-- Never automatically switch provider after `ACCEPTED`
-- Never automatically switch provider after `UNKNOWN_OUTCOME`
-- Do not route a permanent recipient failure to another provider
-- Review all failures daily during pilot
+Proven:
+
+- a real frozen `PLANNED` NotificationJob can be read
+- content SHA-256 can be validated
+- exact frozen governed subject/body can traverse the SMTP adapter
+- client recipients can be safely replaced with one same-domain internal pilot recipient
+- CC/BCC can be cleared
+- provider acceptance can be observed
+- inbox rendering can be reviewed
+- pilot execution does not claim or mutate the durable job
+- worker SMTP remains gated
+
+A downstream corporate confidentiality footer was observed after the governed ATI PH body. It is not present in the application template and is not part of the frozen ATI PH content hash.
+
+### Current SMTP safety boundary
+
+```text
+EMAIL_DELIVERY_MODE=SMTP
++
+manual connectivity command
+→ allowed only with EMAIL_SMTP_TEST_ENABLED=true
+
+EMAIL_DELIVERY_MODE=SMTP
++
+controlled NotificationJob pilot command
+→ allowed only with EMAIL_SMTP_PILOT_ENABLED=true
+
+EMAIL_DELIVERY_MODE=SMTP
++
+worker
+→ does not claim NotificationJobs
+```
+
+### Remaining Phase 3 gates
+
+- approve the actual production SMTP relay/route with ATI IT
+- approve production secret-management path
+- define controlled production/client-recipient pilot scope
+- review partial SMTP acceptance semantics
+- define unknown-outcome remediation
+- add bounce/NDR reconciliation where required
+- add monitoring and production runbook
+- add kill-switch and rollback procedure
+- confirm whether Operations requires a governed output attachment
+- implement and review the explicit worker SMTP execution release slice
 
 ### Exit gate
 
-- No duplicate sends under retry, worker restart, and approved provider-fallback tests
-- Provider credentials are isolated behind the Email Delivery boundary
-- Provider configuration can switch between providers using the same implemented adapter type without Public Holiday business-code changes
-- Permanent recipient failure does not retry automatically
-- Unknown outcomes require reconciliation before another provider attempt
-- Operational team can cancel unsent jobs
-- Delivery attempt and source batch are traceable from every sent email
+Phase 3 is complete only when:
+
+- production route and credentials are approved
+- controlled production/client-recipient delivery is accepted
+- duplicate-send behavior under retry/restart is proven
+- partial acceptance behavior is explicit
+- unknown outcomes cannot trigger unsafe resend
+- production worker SMTP can be disabled immediately
+- delivery evidence is traceable
+- monitoring/runbook is operational
+
+Until then, a successful internal SMTP pilot is pre-production evidence, not production activation.
 
 ## 7. Phase 4 — Trusted Automation
 

@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Living solution proposal; implementation status synchronized through controlled email-delivery foundation |
-| Version | 0.2.2 |
-| Date | 2026-08-19 |
+| Status | Living solution proposal; implementation synchronized through controlled frozen-NotificationJob SMTP pilot |
+| Version | 0.3.0 |
+| Date | 2026-08-20 |
 | Prepared by | DSD Team |
 | Scope | Internal Operations Public Holiday Notification Workflow |
 | Proposed architecture | Modular monolith with asynchronous worker |
@@ -34,7 +34,7 @@ The solution shall use:
 
 The current workbook remains useful as a source for requirements, migration, and acceptance comparison, but it must not remain the runtime database or workflow engine
 
-As part of the solution-design work, the DSD Team has now established the application foundation, governed holiday import and publication, client routing, notification policy and scheduling configuration, explainable notification planning, durable committed notification jobs, maker-checker notification approval, due scheduling, worker delivery leases, retry and recovery controls, a provider-neutral Email Delivery Engine, governed workbook-derived email content snapshots, safe STREAM delivery validation, and an explicitly gated manual SMTP connectivity test. Automatic production SMTP NotificationJob delivery, provider failover, bounce/NDR processing, and trusted automation remain controlled future gates and are not represented as production-enabled capabilities
+As part of the solution-design work, the DSD Team has now established the application foundation, governed holiday import and publication, client routing, notification policy and scheduling configuration, explainable notification planning, durable committed notification jobs, maker-checker notification approval, due scheduling, worker delivery leases, retry and recovery controls, a provider-neutral Email Delivery Engine, governed workbook-derived email content snapshots, safe STREAM delivery validation, an explicitly gated manual SMTP connectivity test, and a controlled same-domain NotificationJob SMTP business-content pilot with confirmed inbox rendering. Automatic production/client-recipient SMTP NotificationJob delivery, provider failover, bounce/NDR processing, and trusted automation remain controlled future gates and are not represented as production-enabled capabilities
 
 ## 2. Current Workbook Assessment
 
@@ -85,7 +85,7 @@ The proposed solution shall:
 - Support one client with multiple services, teams, regions, recipients, schedules, and templates
 - Calculate notification schedules using explicit calendar-day or business-day policies
 - Preview generated workbook and email content before delivery
-- Generate output workbooks from a versioned template
+- Generate governed output workbooks only when Operations confirms an approved production output contract
 - Send email using an organization-controlled mailbox
 - Prevent duplicate sends across retries, scheduler restarts, and concurrent workers
 - Track provider acceptance separately from confirmed failure or bounce
@@ -145,7 +145,7 @@ The solution separates enterprise authentication from application authorization
 | Operator | Upload files, review validation results, correct normalized staging data, acknowledge warnings, and submit eligible imports for approval |
 | Approver | Review governed imports, approve or reject a different user's submitted batch, and publish approved canonical holiday data |
 | Auditor | Read calendar-region and import evidence without mutation rights |
-| System Worker | Independently verify uploaded workbooks now; later phases extend the worker to durable notification planning, output generation, scheduling, delivery, and retry |
+| System Worker | Runs session cleanup, due scheduling, retry/lease recovery, and safe STREAM NotificationJob execution; automatic SMTP NotificationJob execution remains gated |
 
 Current access-control baseline:
 
@@ -190,19 +190,24 @@ Keycloak currently proves user identity. The application resolves its own roles 
 
 | Module | Responsibility | Current position |
 | --- | --- | --- |
-| Identity and Access | SSO principal mapping, application roles, permissions, authorization | Implemented baseline |
-| Governed Import | File upload, duplicate protection, schema mapping, staging, validation, correction | Implemented baseline |
-| Holiday Calendar | Canonical regions, aliases, holiday definitions, occurrences, dates, publication | Implemented baseline |
-| Approval | Frozen content hash, maker-checker request, approve or reject decision | Implemented baseline |
-| Artifact Management | Immutable raw file registration, checksum verification, controlled evidence retrieval | Implemented baseline for import artifacts |
-| Audit and Outbox | Audit events and transactional outbox baseline | Implemented baseline |
-| Client Configuration | Clients, service teams, contacts, subscriptions, recipients | Proposed next phase |
-| Notification Policy | Lead time, timezone, day filter, approval mode, send time | Proposed next phase |
-| Template Management | Email and workbook template versioning and activation | Proposed next phase |
-| Matching Engine | Deterministic holiday-to-subscription matching | Proposed next phase |
-| Notification Orchestration | Run creation, job generation, snapshots, approvals | Proposed next phase |
-| Scheduling and Execution | Due work, lease recovery, retry, dead-letter, idempotency | Proposed delivery phase |
-| Email Delivery Engine | Generic SMTP, provider registry, dynamic routing, provider adapters, delivery attempts, NDR or bounce evidence | Proposed delivery phase |
+| Identity and Access | SSO principal mapping, application roles, permissions, authorization | Implemented |
+| Governed Import | File upload, duplicate protection, schema mapping, staging, validation, correction | Implemented |
+| Holiday Calendar | Canonical regions, aliases, holiday definitions, occurrences, dates, publication | Implemented |
+| Approval | Frozen content hash, maker-checker request, approve or reject decision | Implemented for import and notification plan |
+| Artifact Management | Immutable raw file registration, checksum verification, controlled evidence retrieval | Implemented for current import evidence; production output attachment contract still unconfirmed |
+| Audit and Outbox | Audit events and transactional outbox | Implemented baseline |
+| Client Configuration | Clients, service teams, contacts, subscriptions, TO/CC recipients | Implemented |
+| Notification Policy | Lead time, timezone, day filter, approval mode, automatic-send flag, retry ceiling | Implemented |
+| Scheduling Policy | Global schedule with client override resolution | Implemented |
+| Matching Engine | Deterministic holiday-to-subscription matching | Implemented |
+| Notification Orchestration | Plan preview, durable job creation, frozen recipient/rule/content snapshots, maker-checker approval | Implemented |
+| Scheduling and Execution | Due promotion, claim leases, retry, expired-lease recovery, failure classification | Implemented foundation |
+| Email Delivery Engine | Provider-neutral engine, STREAM, generic SMTP, deterministic Message-ID, transport result | Implemented |
+| SMTP Connectivity Test | Explicit same-domain technical test with no database access | Implemented and verified |
+| NotificationJob SMTP Pilot | Frozen business-content SMTP send to same-domain internal recipient with no durable job mutation | Implemented and inbox-verified |
+| Automatic SMTP NotificationJob Execution | Worker claim and production/client-recipient send | Gated |
+| Bounce/NDR Reconciliation | Provider delivery-event correlation | Future / provider dependent |
+| Shared Email Delivery Platform | Extraction for multiple consumers | Not justified until a second production consumer |
 
 ### 7.2 Recommended deployment
 
@@ -216,30 +221,51 @@ Keycloak currently proves user identity. The application resolves its own roles 
 
 ## 8. End-to-End Flow
 
-The complete proposed workflow is:
+Current executable workflow:
 
 ```mermaid
 flowchart TD
     A["Select governed XLSX"] --> B["Browser preview"]
     B --> C["Server duplicate and workbook preflight"]
-    C --> D["Store immutable raw artifact + provisional staging"]
-    D --> E["Worker independently verifies raw workbook"]
-    E --> F{"Authoritative result valid?"}
-    F -->|No| G["Review / correct staging / re-upload"]
-    G --> H["Revalidate"]
-    H --> F
-    F -->|Yes| I["Submit for maker-checker approval"]
-    I --> J["Approve"]
-    J --> K["Publish canonical holidays"]
-    K --> L["Match active client subscriptions - next phase"]
-    L --> M["Plan notification run - next phase"]
-    M --> N["Render email + output workbook - next phase"]
-    N --> O["Preview and approve notification run - next phase"]
-    O --> P["Schedule and send - controlled delivery phase"]
-    P --> Q["Monitor delivery and exceptions"]
+    C --> D["Store immutable raw artifact + staging"]
+    D --> E["Authoritative validation"]
+    E --> F{"Valid?"}
+    F -->|No| G["Review / correct staging"]
+    G --> E
+    F -->|Yes| H["Import maker-checker"]
+    H --> I["Publish canonical holidays"]
+    I --> J["Match active client subscriptions"]
+    J --> K["Resolve notification + schedule policy"]
+    K --> L["Preview notification plan"]
+    L --> M["Commit frozen NotificationJobs"]
+    M --> N{"Approval required?"}
+    N -->|Yes| O["Notification maker-checker"]
+    N -->|No| P["PLANNED"]
+    O --> P
+    P --> Q["Due scheduler / retry + lease recovery"]
+    Q --> R["STREAM automatic execution only"]
 ```
 
-The implemented baseline currently covers the workflow through canonical holiday publication. The downstream client-routing, output-generation, email-delivery, and trusted-automation stages remain proposed phases
+Controlled real-SMTP validation is intentionally outside the automatic worker path:
+
+```mermaid
+flowchart TD
+    S["SMTP connectivity command"] --> T["Same-domain technical test"]
+    T --> U["Provider acceptance + inbox review"]
+
+    V["Frozen PLANNED/DUE NotificationJob"] --> W["Controlled SMTP pilot command"]
+    W --> X["Verify frozen SHA-256"]
+    X --> Y["Override recipient to same-domain internal ATI mailbox"]
+    Y --> Z["Generic SMTP"]
+    Z --> AA["Provider acceptance + inbox review"]
+    AA --> AB["No NotificationJob mutation"]
+```
+
+The current implementation therefore covers governed import through controlled business-content SMTP proof.
+
+Automatic production/client-recipient SMTP delivery remains deliberately disconnected from the worker until the remaining Phase 3 production gates are accepted.
+
+A production output attachment is also not invented until Operations confirms the required output contract.
 
 ## 9. Detailed Operational Flow
 

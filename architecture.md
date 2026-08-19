@@ -2,9 +2,9 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Governed import, routing, notification planning/approval, durable scheduling, retry/lease recovery, governed email snapshots, STREAM delivery, and gated manual SMTP test implemented; automatic SMTP remains gated |
-| Version | 0.4.0 |
-| Date | 2026-08-19 |
+| Status | Governed import, routing, notification planning/approval, durable scheduling, retry/lease recovery, governed email snapshots, STREAM delivery, manual SMTP connectivity, and controlled NotificationJob SMTP pilot implemented; automatic SMTP remains gated |
+| Version | 0.5.0 |
+| Date | 2026-08-20 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
 | Web platform | Next.js 16.3.1 App Router, React 19, TypeScript |
@@ -23,7 +23,7 @@ This is deliberately not a microservice architecture and not a generic workflow 
 
 The Email Delivery capability is designed as a provider-neutral reusable engine from its first implementation because provider selection and routing are infrastructure concerns rather than Public Holiday business rules
 
-Generic SMTP is the initial transport adapter. Provider records and routing are dynamic configuration. Provider-specific adapters are trusted code added only when required capabilities cannot be satisfied by an existing adapter
+Generic SMTP is the initial transport adapter. Sender identity and transport routing are explicit configuration. The current implementation uses an environment-backed static route resolver; a database-backed dynamic provider registry remains a future capability. Provider-specific adapters are trusted code added only when required capabilities cannot be satisfied by an existing adapter
 
 No paid email provider is a mandatory architecture dependency
 
@@ -31,9 +31,9 @@ The Public Holiday codebase, database, worker, authorization rules, and business
 
 As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID and client credential configuration as ATI One. It still creates its own namespaced application session. Keycloak is the identity and authentication authority only: ATI PH does not derive business authorization from Keycloak realm roles. Application roles, permissions, and menu visibility are resolved from ATI PH-owned PostgreSQL records. The role-permission catalog, maker-checker rules, and application access-control invariants are documented in [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md). This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
 
-## 1.1 Implementation snapshot — 2026-08-19
+## 1.1 Implementation snapshot — 2026-08-20
 
-The executable system has advanced beyond the original Phase 1 baseline
+The executable system has advanced into Phase 3 controlled delivery.
 
 Implemented boundaries now include:
 
@@ -51,27 +51,43 @@ Implemented boundaries now include:
 - STREAM adapter
 - generic SMTP adapter
 - manual same-domain SMTP connectivity test behind explicit gates
+- controlled same-domain NotificationJob SMTP business-content pilot
+- real SMTP inbox validation of frozen governed content
 
 Current safety boundary:
 
 ```text
 STREAM
-→ worker can execute eligible jobs
+→ worker can execute eligible jobs and mutate durable delivery state
 
-SMTP
-→ transport can be manually connectivity-tested
-→ worker does not claim NotificationJobs
+SMTP connectivity test
+→ explicit manual command
+→ no Prisma / no NotificationJob
+→ same-domain internal recipient
+
+SMTP NotificationJob pilot
+→ explicit manual command
+→ reads one PLANNED/DUE frozen job
+→ verifies content SHA-256
+→ overrides recipients to one same-domain internal address
+→ no claim / no DeliveryAttempt / no durable job mutation
+
+Automatic SMTP worker
+→ still gated
+→ worker does not claim NotificationJobs in SMTP mode
 ```
 
-The active default Public Holiday email content is grounded in the supplied workbook and is frozen at notification-plan commit time
+The active default Public Holiday email content is grounded in the supplied workbook and is frozen at notification-plan commit time.
 
-Automatic production SMTP, provider fallback, bounce/NDR ingestion, and platform extraction remain future gates
+The 2026-08-20 inbox pilot confirmed the governed subject/body rendering. A corporate confidentiality footer was observed after the governed application body; that footer is not present in the application template source and is treated as downstream mail-system decoration outside the frozen ATI PH content hash.
 
-See `docs/EMAIL-DELIVERY-PLATFORM.md` and `docs/LOCAL-EMAIL-TESTING.md`
+Automatic production/client-recipient SMTP, provider fallback, bounce/NDR ingestion, production monitoring/runbook, and platform extraction remain future gates.
+
+See `docs/EMAIL-DELIVERY-PLATFORM.md` and `docs/LOCAL-EMAIL-TESTING.md`.
 
 ## 2. Context
 
-The workflow must ingest governed public-holiday Excel, validate and publish holiday data, select affected client teams, produce a governed workbook output, send email, and retain evidence
+The workflow must ingest governed public-holiday Excel, validate and publish holiday data, select affected client teams, produce governed output artifacts only when an approved output contract exists, send email, and retain evidence
 
 The same control primitives are also useful for fare imports, SLA alerts, expiry reminders, finance exceptions, and master-data changes
 
@@ -92,7 +108,7 @@ flowchart TD
     APP --> ART["Artifact Module"]
     APP --> AUD["Audit Module"]
     MSG --> EDP["Email Delivery Engine"]
-    EDP --> ROUTER["Dynamic Provider Router"]
+    EDP --> ROUTER["Configured Route Resolver"]
     ROUTER --> SMTP["Generic SMTP Adapter"]
     ROUTER --> PAPI["Optional Provider API Adapter"]
     ART --> STORE["Object Storage"]

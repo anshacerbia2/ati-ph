@@ -26,7 +26,7 @@ PostgreSQL
 
 ## Current implementation status
 
-Implemented through 2026-08-19:
+Implemented through 2026-08-20:
 
 - ATI One mounted application boundary
 - Keycloak authentication with ATI PH-owned database sessions
@@ -49,10 +49,11 @@ Implemented through 2026-08-19:
 - Frozen rendered email content with SHA-256 integrity check
 - Approval hash includes the exact frozen delivery content
 - Explicit gated manual SMTP connectivity test
+- Controlled same-domain NotificationJob SMTP business-content pilot using frozen job content without durable job mutation
 
 Not enabled yet:
 
-- Automatic SMTP execution of production `NotificationJob` records
+- Automatic SMTP execution of production/client-recipient `NotificationJob` records
 - Automatic provider failover
 - Provider-specific API adapters
 - Bounce/NDR ingestion
@@ -318,6 +319,8 @@ See `docs/EMAIL-DELIVERY-PLATFORM.md`.
 
 ## Email tests
 
+ATI PH now has four deliberately separate email-validation levels.
+
 ### 1. Full automated verification
 
 ```cmd
@@ -333,9 +336,11 @@ lint
 production build
 ```
 
+No real email is sent by this command.
+
 ### 2. STREAM validation
 
-Safe transport validation uses:
+Use STREAM for in-memory transport validation:
 
 ```env
 EMAIL_DELIVERY_MODE=STREAM
@@ -345,23 +350,21 @@ EMAIL_FROM_NAME=ATI Business Group
 EMAIL_TRANSPORT_CODE=SAFE_STREAM
 ```
 
-`STREAM` never opens an external SMTP connection.
+STREAM never opens an external SMTP connection.
 
-Important: when the worker is running in STREAM mode, eligible real database notification jobs can be claimed and transitioned as delivery work even though the message is only generated in memory. Use STREAM worker execution only against a local/test database whose delivery state may safely change.
+Important: when the worker runs in STREAM mode, eligible database jobs can be claimed and their durable delivery state can change. Use worker STREAM execution only against a local/test database whose delivery state may safely change.
 
-For normal code-level validation, prefer:
+### 3. Manual SMTP connectivity test
 
-```cmd
-npm run verify
+Purpose:
+
+```text
+prove SMTP credentials + TLS + host/port + sender identity + provider acceptance
 ```
 
-### 3. Gated manual SMTP connectivity test
+It does not read `NotificationJob` and it does not require the worker.
 
-This is the only current supported way to send a real SMTP test email from the repository.
-
-It is intentionally separate from `NotificationJob` execution and does not access the application database.
-
-Example local Google Workspace direct-SMTP configuration:
+Shared SMTP configuration example:
 
 ```env
 EMAIL_DELIVERY_MODE=SMTP
@@ -377,33 +380,102 @@ EMAIL_SMTP_SECURE=false
 EMAIL_SMTP_REQUIRE_TLS=true
 
 EMAIL_SMTP_USER=apps@atibusinessgroup.com
-EMAIL_SMTP_PASSWORD=<APP_PASSWORD_OR_OTHER_IT_APPROVED_APPLICATION_CREDENTIAL>
-
+EMAIL_SMTP_PASSWORD=<IT_APPROVED_APPLICATION_CREDENTIAL>
 EMAIL_SMTP_CONNECTION_TIMEOUT_MS=10000
-
-EMAIL_SMTP_TEST_ENABLED=true
-EMAIL_SMTP_TEST_RECIPIENT=<YOUR_ATI_EMAIL>
 ```
 
-Then explicitly send exactly one technical test message:
+Connectivity-test gate:
+
+```env
+EMAIL_SMTP_TEST_ENABLED=true
+EMAIL_SMTP_TEST_RECIPIENT=your.name@atibusinessgroup.com
+
+EMAIL_SMTP_PILOT_ENABLED=false
+```
+
+Send exactly one technical test:
 
 ```cmd
 npm run email:smtp:test -- --send
 ```
 
-The command refuses to send unless:
+The test requires SMTP mode, an explicit enable flag, a same-domain test recipient, and the explicit `--send` flag.
 
-- delivery mode is `SMTP`
-- `EMAIL_SMTP_TEST_ENABLED=true`
-- `EMAIL_SMTP_TEST_RECIPIENT` is configured
-- the explicit `--send` flag is present
-- test-recipient domain matches `EMAIL_FROM_ADDRESS`
+A successful result proves provider acceptance, not final recipient delivery.
+
+### 4. Controlled NotificationJob SMTP business-content pilot
+
+Purpose:
+
+```text
+prove the real frozen ATI PH business email can traverse the SMTP engine safely
+without sending to the frozen client recipient snapshot
+```
+
+The pilot:
+
+- reads one existing `PLANNED` or `DUE` NotificationJob
+- requires frozen governed `contentSnapshot` and `contentSha256`
+- verifies the frozen content checksum
+- preserves the frozen subject/body
+- replaces TO with one configured same-domain internal recipient
+- clears CC and BCC
+- uses a pilot-specific deterministic idempotency key and Message-ID
+- does not claim the job
+- does not create a delivery attempt
+- does not change NotificationJob status, attempt count, sent time, or failed time
+- does not require the worker
+- does not enable automatic SMTP execution
+
+After the connectivity test is complete, use:
+
+```env
+EMAIL_SMTP_TEST_ENABLED=false
+EMAIL_SMTP_TEST_RECIPIENT=your.name@atibusinessgroup.com
+
+EMAIL_SMTP_PILOT_ENABLED=true
+EMAIL_SMTP_PILOT_RECIPIENT=your.name@atibusinessgroup.com
+```
+
+`EMAIL_SMTP_TEST_RECIPIENT` may remain configured while `EMAIL_SMTP_TEST_ENABLED=false`; it is ignored by the pilot.
+
+Run:
+
+```cmd
+npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
+```
+
+Expected success:
+
+```text
+CONTROLLED SMTP PILOT
+...
+NOTIFICATION SMTP PILOT PASS
+```
+
+### Verified pilot baseline — 2026-08-20
+
+The current Google Workspace direct-SMTP path was validated with:
+
+```text
+transport code: ATI_GOOGLE_DIRECT
+sender: apps@atibusinessgroup.com
+recipient scope: same-domain internal ATI mailbox
+SMTP provider acceptance: confirmed
+inbox arrival: confirmed
+governed subject/body rendering: confirmed
+automatic worker SMTP: still gated
+```
+
+The verified business-content pilot rendered the frozen Ticketing UK / Example Holiday Gamma / 15 March 2027 notification as expected.
+
+The inbox also displayed an additional corporate confidentiality footer after the ATI PH governed body. The application template itself ends at `ATI Public Holiday Notification`, so that footer is downstream mail-system decoration and is not part of the frozen ATI PH content SHA-256.
 
 Do not use a normal Google login password.
 
 Do not paste SMTP credentials into issues, docs, commits, chat logs, or screenshots.
 
-For full instructions and Google Workspace notes, see `docs/LOCAL-EMAIL-TESTING.md`.
+See `docs/LOCAL-EMAIL-TESTING.md` for the complete runbook.
 
 ## Production email direction
 
@@ -412,11 +484,22 @@ Production remains fail-closed:
 ```env
 EMAIL_DELIVERY_MODE=DISABLED
 EMAIL_SMTP_TEST_ENABLED=false
+EMAIL_SMTP_PILOT_ENABLED=false
 ```
 
-The production target can use Google Workspace SMTP relay or another approved SMTP-compatible provider without changing Public Holiday business logic.
+The direct `smtp.gmail.com` path is proven for controlled development/pilot validation. That does not make it the approved production route.
 
-Automatic SMTP NotificationJob execution is a separate release gate and must not be inferred from a successful manual SMTP connectivity test.
+The production target remains an ATI IT-approved Google Workspace relay or another approved SMTP-compatible route without changing Public Holiday business logic.
+
+Automatic SMTP NotificationJob execution is a separate release gate and must not be inferred from either:
+
+```text
+SMTP MANUAL TEST ACCEPTED
+or
+NOTIFICATION SMTP PILOT PASS
+```
+
+The worker still refuses to claim NotificationJobs in SMTP mode.
 
 ## Validation commands
 
@@ -457,37 +540,23 @@ Attributes such as `bis_skin_checked`, `bis_register`, and `processed_<uuid>` ca
 
 Disable the extension for localhost when validating hydration. These attributes are not emitted by ATI PH.
 
-## Controlled NotificationJob SMTP pilot
+## Controlled NotificationJob SMTP pilot evidence
 
-After the generic SMTP connectivity test succeeds, the next release gate is a controlled business-content pilot.
+The controlled same-domain business-content pilot is now proven.
 
-The pilot:
+What it proves:
 
-- reads one existing `NotificationJob`
-- requires the job to be `PLANNED` or `DUE`
-- uses the exact frozen governed email content and SHA-256 snapshot
-- overrides TO to one configured same-domain internal recipient
-- clears CC/BCC
-- uses a pilot-specific deterministic Message-ID/idempotency key
-- does not claim the job
-- does not create a delivery attempt
-- does not mutate the durable job state
-- does not enable worker SMTP execution
+- a frozen approved NotificationJob can be composed and delivered through the real SMTP adapter
+- the current sender identity and Google direct-SMTP transport can deliver to an internal ATI inbox
+- subject, body, holiday date, and client name render from the frozen governed snapshot
+- downstream corporate mail policy may append content after the application body
 
-Example:
+What it does not prove:
 
-```env
-EMAIL_DELIVERY_MODE=SMTP
-EMAIL_SMTP_PILOT_ENABLED=true
-EMAIL_SMTP_PILOT_RECIPIENT=your.name@atibusinessgroup.com
-```
+- production relay approval
+- client-recipient production delivery
+- automatic SMTP worker safety
+- bounce/NDR reconciliation
+- production monitoring and runbook readiness
 
-Then:
-
-```cmd
-npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
-```
-
-The command fails closed unless the pilot recipient uses the same domain as `EMAIL_FROM_ADDRESS`.
-
-Automatic SMTP execution by the worker remains a separate production release gate.
+Those remain separate release gates.

@@ -2,11 +2,11 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Stage 1 reusable engine implemented; automatic production SMTP remains gated |
-| Version | 0.2.0 |
-| Date | 2026-08-19 |
+| Status | Stage 1 reusable engine implemented; manual SMTP connectivity and controlled NotificationJob SMTP pilot proven; automatic production SMTP remains gated |
+| Version | 0.3.0 |
+| Date | 2026-08-20 |
 | First consumer | Public Holiday Notification Workflow |
-| Current implementation | Provider-neutral engine, STREAM, generic SMTP, durable attempt/retry contract, manual SMTP test |
+| Current implementation | Provider-neutral engine, STREAM, generic SMTP, durable attempt/retry contract, manual SMTP connectivity test, controlled frozen-NotificationJob SMTP pilot |
 | Initial production provider direction | Approved SMTP-compatible route; Google Workspace relay is the current ATI candidate |
 | Platform extraction | Not justified yet |
 
@@ -44,6 +44,7 @@ Implemented:
 - content SHA-256 verification
 - approval hash over the exact frozen delivery content
 - explicit gated manual SMTP connectivity test
+- controlled same-domain NotificationJob SMTP business-content pilot with no durable job mutation
 
 Still gated or future:
 
@@ -111,16 +112,35 @@ Holiday occurrence
 → worker
 → claim + delivery attempt
 → Email Delivery Engine
-→ STREAM today for job execution
-
-Manual SMTP connectivity
-→ explicit test command
-→ Email Delivery Engine
-→ generic SMTP
-→ approved same-domain test recipient
+→ STREAM today for automatic job execution
 ```
 
-Automatic SMTP job execution is intentionally not connected yet.
+Two explicit real-SMTP validation paths exist outside worker execution:
+
+```text
+Manual SMTP connectivity
+→ no Prisma
+→ no NotificationJob
+→ same-domain technical recipient
+→ Email Delivery Engine
+→ generic SMTP
+→ provider acceptance
+```
+
+```text
+Controlled NotificationJob SMTP pilot
+→ read one PLANNED/DUE frozen NotificationJob
+→ verify content SHA-256
+→ keep frozen subject/body
+→ override TO to same-domain internal pilot recipient
+→ clear CC/BCC
+→ Email Delivery Engine
+→ generic SMTP
+→ provider acceptance + inbox review
+→ no durable NotificationJob mutation
+```
+
+Automatic SMTP NotificationJob execution is intentionally not connected to the worker yet.
 
 ## 5. Durable NotificationJob contract
 
@@ -245,9 +265,9 @@ Expired claims are auto-retryable only when the durable attempt is marked `lease
 
 For a future SMTP transport, `leaseRetrySafe` must remain false unless transport/provider idempotency proves duplicate delivery cannot occur.
 
-## 10. Manual SMTP connectivity slice
+## 10. Real SMTP validation slices
 
-Manual SMTP testing is intentionally separate from notification jobs.
+### 10.1 Manual SMTP connectivity
 
 Command:
 
@@ -258,16 +278,54 @@ npm run email:smtp:test -- --send
 Safety requirements:
 
 - SMTP mode
-- explicit test enable flag
-- explicit test recipient
+- explicit `EMAIL_SMTP_TEST_ENABLED=true`
+- explicit same-domain test recipient
 - explicit `--send`
-- test-recipient domain must match sender domain
 
 The script does not access Prisma or NotificationJob.
 
-A successful test validates SMTP connectivity/provider acceptance only.
+A successful result validates SMTP connectivity and provider acceptance only.
 
-It does not unlock automatic SMTP job delivery.
+### 10.2 Controlled NotificationJob SMTP pilot
+
+Command:
+
+```cmd
+npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
+```
+
+Safety requirements:
+
+- SMTP mode
+- explicit `EMAIL_SMTP_PILOT_ENABLED=true`
+- explicit same-domain pilot recipient
+- real `PLANNED` or `DUE` NotificationJob UUID
+- frozen content snapshot and SHA-256
+- explicit `--send`
+
+The pilot:
+
+- reads the durable job as evidence
+- verifies frozen content integrity
+- preserves frozen subject/body
+- overrides delivery to the internal pilot recipient
+- clears CC/BCC
+- does not claim the job
+- does not create a delivery attempt
+- does not mutate the job
+- does not enable worker SMTP execution
+
+### 10.3 Verified baseline — 2026-08-20
+
+The current `ATI_GOOGLE_DIRECT` route has proven:
+
+- manual SMTP provider acceptance
+- internal ATI inbox receipt
+- frozen NotificationJob business-content provider acceptance
+- frozen NotificationJob business-content inbox receipt
+- correct governed subject/body rendering
+
+The observed corporate confidentiality footer is not present in the application template source and is therefore downstream mail-system decoration outside the frozen ATI PH content hash.
 
 See `docs/LOCAL-EMAIL-TESTING.md`.
 
@@ -352,36 +410,51 @@ Production-safe default:
 ```env
 EMAIL_DELIVERY_MODE=DISABLED
 EMAIL_SMTP_TEST_ENABLED=false
+EMAIL_SMTP_PILOT_ENABLED=false
 ```
 
 Current worker:
 
 ```text
 STREAM
-→ claim notification jobs
+→ may claim notification jobs
 
 SMTP
-→ log that external delivery is gated
-→ do not claim notification jobs
+→ logs that external delivery is gated
+→ does not claim NotificationJobs
 ```
 
-Removing the SMTP worker gate requires a separate reviewed slice.
+The manual connectivity command and controlled NotificationJob pilot are explicit operator-run validation tools.
+
+Neither command changes the worker gate.
 
 ## 15. Before production SMTP unlock
 
-Required:
+Completed:
 
-- approved production sender
-- approved SMTP route/relay
-- approved secret-management path
-- controlled real-recipient pilot
+- provider-neutral Email Delivery Engine
+- generic SMTP transport
+- durable attempt/retry/lease contract
+- frozen governed content and SHA-256
+- manual direct-SMTP connectivity validation
+- same-domain internal inbox confirmation
+- controlled frozen-NotificationJob SMTP business-content pilot
+- inbox rendering confirmation
+- worker SMTP gate retained
+
+Still required:
+
+- ATI IT-approved production sender/relay route
+- approved production secret-management path
+- controlled production/client-recipient pilot scope and authorization
 - partial SMTP acceptance policy
 - outcome-unknown remediation path
-- Operations content approval
+- Operations content approval for production use
 - attachment contract confirmed if required
-- monitoring/runbook
+- monitoring and runbook
 - kill-switch behavior
 - documented rollback
+- explicit reviewed release slice before worker SMTP claims are enabled
 
 ## 16. Platform evolution
 
