@@ -53,6 +53,20 @@ describe("notification policy schedule rules", () => {
     ).toBe(true);
   });
 
+  it("requires the public-holiday rule when weekend adjustment moves to a business day", () => {
+    expect(
+      policyScheduleIssues({
+        leadTimeValue: 1,
+        leadTimeMode: "CALENDAR_DAY",
+        sendTimeLocal: "09:00",
+        timezone: "Australia/Sydney",
+        weekendAdjustment: "PREVIOUS_BUSINESS_DAY",
+        businessDayHolidayMode: "UNCONFIRMED",
+        approvalMode: "REQUIRED",
+      }),
+    ).toContain("BUSINESS_DAY_HOLIDAY_RULE_UNCONFIRMED");
+  });
+
   it("validates IANA timezones", () => {
     expect(isValidTimeZone("Australia/Sydney")).toBe(true);
     expect(isValidTimeZone("Not/A_Timezone")).toBe(false);

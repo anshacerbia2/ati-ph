@@ -13,6 +13,9 @@ export type NotificationApprovalModeValue =
   | "UNCONFIRMED"
   | "REQUIRED"
   | "NOT_REQUIRED";
+export type NotificationScheduleSourceValue =
+  | "GLOBAL"
+  | "CLIENT_OVERRIDE";
 
 export type PolicyScheduleShape = {
   leadTimeValue: number | null;
@@ -31,7 +34,11 @@ export function policyScheduleIssues(policy: PolicyScheduleShape): string[] {
     issues.push("LEAD_TIME_UNCONFIGURED");
   }
 
-  if (!policy.sendTimeLocal) issues.push("SEND_TIME_UNCONFIGURED");
+  if (!policy.sendTimeLocal) {
+    issues.push("SEND_TIME_UNCONFIGURED");
+  } else if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(policy.sendTimeLocal)) {
+    issues.push("SEND_TIME_INVALID");
+  }
 
   if (!policy.timezone) {
     issues.push("TIMEZONE_UNCONFIGURED");
@@ -47,8 +54,13 @@ export function policyScheduleIssues(policy: PolicyScheduleShape): string[] {
     issues.push("APPROVAL_MODE_UNCONFIRMED");
   }
 
+  const usesBusinessDayMovement =
+    policy.leadTimeMode === "BUSINESS_DAY" ||
+    policy.weekendAdjustment === "PREVIOUS_BUSINESS_DAY" ||
+    policy.weekendAdjustment === "NEXT_BUSINESS_DAY";
+
   if (
-    policy.leadTimeMode === "BUSINESS_DAY" &&
+    usesBusinessDayMovement &&
     policy.businessDayHolidayMode === "UNCONFIRMED"
   ) {
     issues.push("BUSINESS_DAY_HOLIDAY_RULE_UNCONFIRMED");

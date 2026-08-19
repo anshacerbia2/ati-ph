@@ -24,6 +24,7 @@ function candidate(
           version: 1,
           isActive: true,
           holidayDayFilter: "WEEKDAY",
+          scheduleSource: "GLOBAL",
           leadTimeValue: null,
           leadTimeMode: null,
           sendTimeLocal: null,
@@ -51,7 +52,7 @@ function candidate(
 }
 
 describe("deterministic notification matching", () => {
-  it("matches effective weekday dates and preserves schedule incompleteness", () => {
+  it("matches effective weekday routing independently from schedule resolution", () => {
     const result = evaluateSubscriptionMatch(candidate(), [
       { date: "2027-01-04", dayType: "WEEKDAY" },
       { date: "2027-01-09", dayType: "WEEKEND" },
@@ -60,8 +61,7 @@ describe("deterministic notification matching", () => {
     expect(result.status).toBe("MATCHED");
     expect(result.matchingDates).toEqual(["2027-01-04"]);
     expect(result.to.map((recipient) => recipient.email)).toEqual(["owner@example.com"]);
-    expect(result.policy?.scheduleReady).toBe(false);
-    expect(result.policy?.scheduleIssues).toContain("LEAD_TIME_UNCONFIGURED");
+    expect(result.policy?.scheduleSource).toBe("GLOBAL");
   });
 
   it("excludes inactive routing", () => {

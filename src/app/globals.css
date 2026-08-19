@@ -3230,3 +3230,166 @@ tbody tr:hover { background: var(--ati-gray-50); }
   }
 }
 /* END notification-client-master-routing-rebaseline */
+
+
+/* BEGIN notification-schedule-calculation */
+.matching-schedule{
+  display:grid;
+  gap:.55rem;
+  padding:.68rem;
+  border:1px solid var(--border-subtle);
+  border-radius:.58rem;
+  background:var(--ati-white);
+}
+.matching-schedule--ready{
+  border-color:color-mix(in srgb,var(--ati-success) 28%,var(--border-subtle));
+}
+.matching-schedule--blocked{
+  border-color:var(--ati-warning-bg);
+  background:rgb(255 249 230 / 48%);
+}
+.matching-schedule__heading{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.6rem;
+}
+.matching-schedule__heading strong{
+  color:var(--text-strong);
+  font-size:var(--fs-micro);
+}
+.matching-schedule__heading>span{
+  color:var(--text-muted);
+  font-size:.66rem;
+  font-weight:800;
+}
+.matching-schedule__reasons,
+.matching-schedule__candidate-blocked,
+.matching-schedule__rules{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.3rem;
+}
+.matching-schedule__reasons span,
+.matching-schedule__candidate-blocked span,
+.matching-schedule__rules span{
+  display:inline-flex;
+  min-height:1.4rem;
+  align-items:center;
+  padding:0 .38rem;
+  border-radius:999px;
+  background:var(--ati-gray-50);
+  color:var(--text-muted);
+  font-size:.64rem;
+  font-weight:700;
+}
+.matching-schedule__candidate{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:.45rem;
+  padding:.58rem;
+  border:1px solid var(--border-subtle);
+  border-radius:.52rem;
+  background:var(--ati-white);
+}
+.matching-schedule__candidate>div:not(.matching-schedule__rules):not(.matching-schedule__candidate-blocked){
+  display:grid;
+  min-width:0;
+  gap:.12rem;
+}
+.matching-schedule__candidate>div>span:first-child{
+  color:var(--text-muted);
+  font-size:.62rem;
+  font-weight:750;
+  text-transform:uppercase;
+}
+.matching-schedule__candidate>div>strong{
+  overflow:hidden;
+  color:var(--text-strong);
+  font-size:.68rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.matching-schedule__rules,
+.matching-schedule__candidate-blocked{
+  grid-column:1/-1;
+}
+@media(max-width:760px){
+  .matching-schedule__candidate{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media(max-width:520px){
+  .matching-schedule__candidate{
+    grid-template-columns:1fr;
+  }
+}
+/* END notification-schedule-calculation */
+
+
+/* BEGIN global-notification-schedule */
+.notification-global-schedule{
+  display:grid;
+  gap:.72rem;
+  margin:1rem 1.25rem 0;
+  padding:.9rem;
+  border:1px solid var(--ati-blue-100);
+  border-radius:.72rem;
+  background:linear-gradient(135deg,var(--ati-blue-50),var(--ati-white));
+}
+.notification-global-schedule__header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:1rem;
+}
+.notification-global-schedule__header>div:first-child{
+  display:grid;
+  gap:.18rem;
+}
+.notification-global-schedule__header>div:first-child>strong{
+  color:var(--text-strong);
+  font-size:var(--fs-sm);
+}
+.notification-global-schedule__header>div:first-child>span{
+  max-width:70ch;
+  color:var(--text-muted);
+  font-size:var(--fs-micro);
+  line-height:1.45;
+}
+.notification-global-schedule__header>div:last-child{
+  display:flex;
+  align-items:center;
+  gap:.4rem;
+}
+.notification-policy-inherit-note{
+  grid-column:1/-1;
+  padding:.62rem .68rem;
+  border:1px solid var(--ati-blue-100);
+  border-radius:.55rem;
+  background:var(--ati-blue-50);
+  color:var(--text-muted);
+  font-size:var(--fs-micro);
+  line-height:1.45;
+}
+@media(max-width:680px){
+  .notification-global-schedule__header{
+    flex-direction:column;
+  }
+}
+/* END global-notification-schedule */
+
+
+/* BEGIN notification-client-override-action */
+.notification-text-action--schedule{
+  padding:.35rem .52rem;
+  border:1px solid var(--ati-blue-100);
+  border-radius:.45rem;
+  background:var(--ati-blue-50);
+  white-space:nowrap;
+}
+.notification-text-action--schedule:hover{
+  border-color:var(--ati-blue-200);
+  background:var(--ati-white);
+}
+/* END notification-client-override-action */

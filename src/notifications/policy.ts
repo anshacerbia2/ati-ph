@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
+import { getGlobalNotificationSchedule } from "@/notifications/global-schedule";
 import type { NotificationListQuery } from "@/notifications/list-query";
 import { isValidTimeZone, policyScheduleIssues } from "@/notifications/policy-rules";
 
@@ -25,6 +26,7 @@ export class NotificationPolicyError extends Error {
 const createPolicyVersionSchema = z
   .object({
     holidayDayFilter: z.enum(["WEEKDAY", "WEEKEND", "ALL"]),
+    scheduleSource: z.enum(["GLOBAL", "CLIENT_OVERRIDE"]).default("GLOBAL"),
     leadTimeValue: z.number().int().min(0).max(365).nullable(),
     leadTimeMode: z.enum(["CALENDAR_DAY", "BUSINESS_DAY"]).nullable(),
     sendTimeLocal: z
@@ -83,7 +85,10 @@ export async function listNotificationPolicies(query: NotificationListQuery) {
       }
     : {};
 
-  const total = await db.notificationPolicy.count({ where });
+  const [total, globalSchedule] = await Promise.all([
+    db.notificationPolicy.count({ where }),
+    getGlobalNotificationSchedule(),
+  ]);
   const pageCount = Math.max(1, Math.ceil(total / query.pageSize));
   const page = Math.min(query.page, pageCount);
   const offset = (page - 1) * query.pageSize;
@@ -127,6 +132,7 @@ export async function listNotificationPolicies(query: NotificationListQuery) {
   });
 
   return {
+    globalSchedule,
     policies: policies.map((policy) => {
       const currentVersion = policy.versions.find((version) => version.isActive) ?? null;
       const activeRecipients = policy.subscription.recipients
@@ -237,13 +243,35 @@ export async function createNotificationPolicyVersion(
         notificationPolicyId: policyId,
         version: (latest?.version ?? 0) + 1,
         holidayDayFilter: parsed.holidayDayFilter,
-        leadTimeValue: parsed.leadTimeValue,
-        leadTimeMode: parsed.leadTimeMode,
-        sendTimeLocal: parsed.sendTimeLocal,
-        timezone: parsed.timezone,
-        weekendAdjustment: parsed.weekendAdjustment,
-        businessDayHolidayMode: parsed.businessDayHolidayMode,
-        approvalMode: parsed.approvalMode,
+        scheduleSource: parsed.scheduleSource,
+        leadTimeValue:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.leadTimeValue
+            : null,
+        leadTimeMode:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.leadTimeMode
+            : null,
+        sendTimeLocal:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.sendTimeLocal
+            : null,
+        timezone:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.timezone
+            : null,
+        weekendAdjustment:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.weekendAdjustment
+            : "UNCONFIRMED",
+        businessDayHolidayMode:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.businessDayHolidayMode
+            : "UNCONFIRMED",
+        approvalMode:
+          parsed.scheduleSource === "CLIENT_OVERRIDE"
+            ? parsed.approvalMode
+            : "UNCONFIRMED",
         retryCeiling: parsed.retryCeiling,
         automaticSendAllowed: false,
         changeReason: parsed.changeReason,
@@ -297,6 +325,7 @@ function policyVersionView(version: {
   id: string;
   version: number;
   holidayDayFilter: "WEEKDAY" | "WEEKEND" | "ALL";
+  scheduleSource: "GLOBAL" | "CLIENT_OVERRIDE";
   leadTimeValue: number | null;
   leadTimeMode: "CALENDAR_DAY" | "BUSINESS_DAY" | null;
   sendTimeLocal: string | null;
@@ -315,6 +344,7 @@ function policyVersionView(version: {
     id: version.id,
     version: version.version,
     holidayDayFilter: version.holidayDayFilter,
+    scheduleSource: version.scheduleSource,
     leadTimeValue: version.leadTimeValue,
     leadTimeMode: version.leadTimeMode,
     sendTimeLocal: version.sendTimeLocal,

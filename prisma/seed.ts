@@ -376,6 +376,7 @@ async function seedClientMasterRouting(): Promise<void> {
           notificationPolicyId: policy.id,
           version: 1,
           holidayDayFilter: "ALL",
+          scheduleSource: "GLOBAL",
           leadTimeValue: null,
           leadTimeMode: null,
           sendTimeLocal: null,
@@ -466,6 +467,40 @@ async function seedClientMasterRouting(): Promise<void> {
 }
 
 
+async function seedGlobalNotificationSchedule(): Promise<void> {
+  const policy = await db.notificationSchedulePolicy.upsert({
+    where: { scopeKey: "GLOBAL" },
+    create: { scopeKey: "GLOBAL", isActive: true },
+    update: {},
+    select: { id: true },
+  });
+
+  const existingVersion = await db.notificationSchedulePolicyVersion.findFirst({
+    where: { notificationSchedulePolicyId: policy.id },
+    orderBy: { version: "desc" },
+    select: { id: true },
+  });
+
+  if (!existingVersion) {
+    await db.notificationSchedulePolicyVersion.create({
+      data: {
+        notificationSchedulePolicyId: policy.id,
+        version: 1,
+        leadTimeValue: null,
+        leadTimeMode: null,
+        sendTimeLocal: null,
+        timezone: null,
+        weekendAdjustment: "UNCONFIRMED",
+        businessDayHolidayMode: "UNCONFIRMED",
+        approvalMode: "UNCONFIRMED",
+        isActive: true,
+        changeReason:
+          "Initial global schedule baseline; business timing remains unconfirmed.",
+      },
+    });
+  }
+}
+
 async function seedMissingNotificationPolicyShells(): Promise<void> {
   const subscriptions = await db.clientSubscription.findMany({
     where: { notificationPolicy: null },
@@ -490,8 +525,9 @@ async function main(): Promise<void> {
   await seedAuthorization();
   await seedCalendarRegions();
   await seedClientMasterRouting();
+  await seedGlobalNotificationSchedule();
   await seedMissingNotificationPolicyShells();
-  console.info("ATI PH authorization, calendar-region, client-routing, and notification-policy bootstrap complete.");
+  console.info("ATI PH authorization, calendar-region, client-routing, global notification schedule, and notification-policy bootstrap complete.");
 }
 
 main()

@@ -110,6 +110,13 @@ enum NotificationApprovalMode {
   @@schema("notification")
 }
 
+enum NotificationScheduleSource {
+  GLOBAL
+  CLIENT_OVERRIDE
+
+  @@schema("notification")
+}
+
 model User {
   id                   String                  @id @default(uuid()) @db.Uuid
   externalSubject      String                  @unique @db.VarChar(191)
@@ -560,6 +567,41 @@ model SubscriptionRecipient {
   @@schema("routing")
 }
 
+model NotificationSchedulePolicy {
+  id        String                              @id @default(uuid()) @db.Uuid
+  scopeKey  String                              @unique @default("GLOBAL") @db.VarChar(40)
+  isActive  Boolean                             @default(true)
+  createdAt DateTime                            @default(now())
+  updatedAt DateTime                            @updatedAt
+  versions  NotificationSchedulePolicyVersion[]
+
+  @@index([isActive, createdAt])
+  @@map("notification_schedule_policies")
+  @@schema("notification")
+}
+
+model NotificationSchedulePolicyVersion {
+  id                           String                             @id @default(uuid()) @db.Uuid
+  notificationSchedulePolicyId String                             @db.Uuid
+  version                      Int
+  leadTimeValue                Int?
+  leadTimeMode                 NotificationLeadTimeMode?
+  sendTimeLocal                String?                            @db.VarChar(5)
+  timezone                     String?                            @db.VarChar(100)
+  weekendAdjustment            NotificationWeekendAdjustment      @default(UNCONFIRMED)
+  businessDayHolidayMode       NotificationBusinessDayHolidayMode @default(UNCONFIRMED)
+  approvalMode                 NotificationApprovalMode           @default(UNCONFIRMED)
+  isActive                     Boolean                            @default(true)
+  changeReason                 String?                            @db.VarChar(500)
+  createdAt                    DateTime                           @default(now())
+  policy                       NotificationSchedulePolicy         @relation(fields: [notificationSchedulePolicyId], references: [id], onDelete: Restrict, map: "notification_schedule_policy_versions_policy_fkey")
+
+  @@unique([notificationSchedulePolicyId, version], map: "notification_schedule_policy_versions_policy_version_key")
+  @@index([notificationSchedulePolicyId, isActive], map: "notification_schedule_policy_versions_policy_active_idx")
+  @@map("notification_schedule_policy_versions")
+  @@schema("notification")
+}
+
 model NotificationPolicy {
   id                   String                      @id @default(uuid()) @db.Uuid
   clientSubscriptionId String                      @unique @db.Uuid
@@ -579,6 +621,7 @@ model NotificationPolicyVersion {
   notificationPolicyId   String                             @db.Uuid
   version                Int
   holidayDayFilter       HolidayDayFilter
+  scheduleSource         NotificationScheduleSource         @default(GLOBAL)
   leadTimeValue          Int?
   leadTimeMode           NotificationLeadTimeMode?
   sendTimeLocal          String?                            @db.VarChar(5)

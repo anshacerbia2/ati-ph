@@ -1,10 +1,10 @@
 import { isSubscriptionEffectiveOn } from "@/clients/routing";
 import {
-  policyScheduleIssues,
   type HolidayDayFilterValue,
   type NotificationApprovalModeValue,
   type NotificationBusinessDayHolidayModeValue,
   type NotificationLeadTimeModeValue,
+  type NotificationScheduleSourceValue,
   type NotificationWeekendAdjustmentValue,
 } from "@/notifications/policy-rules";
 
@@ -18,6 +18,7 @@ export type MatchingPolicyVersion = {
   version: number;
   isActive: boolean;
   holidayDayFilter: HolidayDayFilterValue;
+  scheduleSource: NotificationScheduleSourceValue;
   leadTimeValue: number | null;
   leadTimeMode: NotificationLeadTimeModeValue | null;
   sendTimeLocal: string | null;
@@ -72,8 +73,14 @@ export type MatchingResult = {
     versionId: string;
     version: number;
     holidayDayFilter: HolidayDayFilterValue;
-    scheduleReady: boolean;
-    scheduleIssues: string[];
+    scheduleSource: NotificationScheduleSourceValue;
+    leadTimeValue: number | null;
+    leadTimeMode: NotificationLeadTimeModeValue | null;
+    sendTimeLocal: string | null;
+    timezone: string | null;
+    weekendAdjustment: NotificationWeekendAdjustmentValue;
+    businessDayHolidayMode: NotificationBusinessDayHolidayModeValue;
+    approvalMode: NotificationApprovalModeValue;
   } | null;
   to: MatchingRecipient[];
   cc: MatchingRecipient[];
@@ -155,14 +162,19 @@ export function evaluateSubscriptionMatch(
   const matchingDates = effectiveDates
     .filter((item) => dayFilterMatches(version.holidayDayFilter, item.dayType))
     .map((item) => item.date);
-  const scheduleIssues = policyScheduleIssues(version);
   const policy = {
     id: candidate.policy.id,
     versionId: version.id,
     version: version.version,
     holidayDayFilter: version.holidayDayFilter,
-    scheduleReady: scheduleIssues.length === 0,
-    scheduleIssues,
+    scheduleSource: version.scheduleSource,
+    leadTimeValue: version.leadTimeValue,
+    leadTimeMode: version.leadTimeMode,
+    sendTimeLocal: version.sendTimeLocal,
+    timezone: version.timezone,
+    weekendAdjustment: version.weekendAdjustment,
+    businessDayHolidayMode: version.businessDayHolidayMode,
+    approvalMode: version.approvalMode,
   };
 
   if (matchingDates.length === 0) {
@@ -216,10 +228,7 @@ export function evaluateSubscriptionMatch(
     ...base,
     status: "MATCHED",
     code: "ROUTING_MATCH",
-    reason:
-      scheduleIssues.length === 0
-        ? "Subscription, day filter, and recipients matched."
-        : "Routing matched; scheduling configuration is not complete yet.",
+    reason: "Subscription, day filter, and recipients matched.",
     matchingDates,
     policy,
     to,

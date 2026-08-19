@@ -27,6 +27,29 @@ type Pagination = {
 
 type OccurrenceResponse = { occurrences: Occurrence[]; pagination: Pagination; error?: string };
 
+type ScheduleCandidate =
+  | {
+      status: "BLOCKED";
+      targetHolidayDate: string;
+      reasons: string[];
+    }
+  | {
+      status: "READY";
+      targetHolidayDate: string;
+      plannedLocalDate: string;
+      plannedLocalTime: string;
+      timezone: string;
+      approvalMode: "REQUIRED" | "NOT_REQUIRED";
+      approvalRequired: boolean;
+      appliedRules: string[];
+    };
+
+type SchedulePreview = {
+  status: "READY" | "BLOCKED";
+  reasons: string[];
+  candidates: ScheduleCandidate[];
+};
+
 type PreviewResult = {
   subscriptionId: string;
   clientName: string;
@@ -40,9 +63,15 @@ type PreviewResult = {
   policy: {
     version: number;
     holidayDayFilter: "WEEKDAY" | "WEEKEND" | "ALL";
-    scheduleReady: boolean;
-    scheduleIssues: string[];
+    scheduleSource: "GLOBAL" | "CLIENT_OVERRIDE";
   } | null;
+  scheduleResolution: {
+    source: "GLOBAL" | "CLIENT_OVERRIDE";
+    sourceVersion: number | null;
+    ready: boolean;
+    issues: string[];
+  } | null;
+  schedule: SchedulePreview | null;
   to: Array<{ contactId: string; displayName: string | null; email: string }>;
   cc: Array<{ contactId: string; displayName: string | null; email: string }>;
 };
@@ -66,7 +95,7 @@ type Preview = {
   };
   summary: { candidates: number; matched: number; excluded: number; exceptions: number; scheduleReady: number };
   results: PreviewResult[];
-  mode: "SHADOW_MATCHING_ONLY";
+  mode: "SHADOW_MATCHING_AND_SCHEDULING";
   error?: string;
 };
 
@@ -198,8 +227,8 @@ export function NotificationPlanning() {
       <div className="notification-shadow-banner">
         <span>SHADOW</span>
         <div>
-          <strong>Explainable matching only</strong>
-          <p>Preview reads canonical holidays and routing configuration. It creates no notification run, job, outbox event, or email.</p>
+          <strong>Explainable matching + schedule calculation</strong>
+          <p>Preview resolves WHO and deterministically calculates WHEN from confirmed policy fields. It creates no notification run, job, outbox event, or email.</p>
         </div>
       </div>
 
@@ -219,7 +248,7 @@ export function NotificationPlanning() {
               </div>
               <div className="notification-occurrence-regions">{occurrence.regions.map((region) => <span key={region.id}>{region.code}</span>)}</div>
               <button className="ati-btn ati-btn--secondary" disabled={previewLoadingId === occurrence.id} onClick={() => void openPreview(occurrence.id)} type="button">
-                {previewLoadingId === occurrence.id ? "Matching…" : "Preview matching"}
+                {previewLoadingId === occurrence.id ? "Planning…" : "Preview plan"}
               </button>
             </article>
           ))}
@@ -262,7 +291,7 @@ function MatchingPreviewModal({
       <div className="matching-preview-modal__panel">
         <div className="matching-preview-modal__bar">
           <div>
-            <span>Shadow matching preview</span>
+            <span>Shadow notification plan</span>
             <strong>{preview.occurrence.holidayName}</strong>
           </div>
           <button
@@ -332,15 +361,99 @@ function MatchingPreview({ preview }: { preview: Preview }) {
               <Fact label="Rule" value={humanize(result.code)} />
               <Fact label="Dates" value={result.matchingDates.length ? result.matchingDates.join(", ") : "None"} />
               <Fact label="Policy" value={result.policy ? `v${result.policy.version} · ${humanize(result.policy.holidayDayFilter)}` : "Not resolved"} />
-              <Fact label="Schedule" value={result.policy?.scheduleReady ? "Configured" : "Incomplete"} />
+              <Fact
+                label="Schedule"
+                value={
+                  result.scheduleResolution
+                    ? `${result.scheduleResolution.source === "GLOBAL" ? "Global" : "Client override"} · ${result.schedule?.status ?? "Blocked"}`
+                    : "Not applicable"
+                }
+              />
             </div>
-            {result.policy?.scheduleIssues.length ? <div className="matching-result__issues">{result.policy.scheduleIssues.map((issue) => <span key={issue}>{humanize(issue)}</span>)}</div> : null}
+            {result.scheduleResolution?.issues.length ? <div className="matching-result__issues">{result.scheduleResolution.issues.map((issue) => <span key={issue}>{humanize(issue)}</span>)}</div> : null}
+            {result.schedule ? <SchedulePreviewBlock schedule={result.schedule} /> : null}
             <RecipientGroup label="Client PIC Email (TO)" recipients={result.to} />
             <RecipientGroup label="CC" recipients={result.cc} />
           </article>
         ))}
       </div>
     </section>
+  );
+}
+
+function SchedulePreviewBlock({
+  schedule,
+}: {
+  schedule: SchedulePreview;
+}) {
+  return (
+    <div
+      className={
+        schedule.status === "READY"
+          ? "matching-schedule matching-schedule--ready"
+          : "matching-schedule matching-schedule--blocked"
+      }
+    >
+      <div className="matching-schedule__heading">
+        <strong>
+          {schedule.status === "READY"
+            ? "Planned send schedule"
+            : "Schedule blocked"}
+        </strong>
+        <span>{schedule.status}</span>
+      </div>
+
+      {schedule.status === "BLOCKED" && schedule.reasons.length ? (
+        <div className="matching-schedule__reasons">
+          {schedule.reasons.map((reason) => (
+            <span key={reason}>{humanize(reason)}</span>
+          ))}
+        </div>
+      ) : null}
+
+      {schedule.candidates.map((candidate) => (
+        <div
+          className="matching-schedule__candidate"
+          key={candidate.targetHolidayDate}
+        >
+          <div>
+            <span>Holiday date</span>
+            <strong>{candidate.targetHolidayDate}</strong>
+          </div>
+          {candidate.status === "READY" ? (
+            <>
+              <div>
+                <span>Planned send</span>
+                <strong>
+                  {candidate.plannedLocalDate} · {candidate.plannedLocalTime}
+                </strong>
+              </div>
+              <div>
+                <span>Timezone</span>
+                <strong>{candidate.timezone}</strong>
+              </div>
+              <div>
+                <span>Approval</span>
+                <strong>
+                  {candidate.approvalRequired ? "Required" : "Not required"}
+                </strong>
+              </div>
+              <div className="matching-schedule__rules">
+                {candidate.appliedRules.map((rule) => (
+                  <span key={rule}>{humanize(rule)}</span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="matching-schedule__candidate-blocked">
+              {candidate.reasons.map((reason) => (
+                <span key={reason}>{humanize(reason)}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

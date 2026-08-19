@@ -8,6 +8,13 @@ import {
   type MatchingOccurrenceDate,
 } from "@/notifications/matching";
 import type { NotificationListQuery } from "@/notifications/list-query";
+import { getGlobalNotificationSchedule } from "@/notifications/global-schedule";
+import { policyScheduleIssues } from "@/notifications/policy-rules";
+import {
+  buildNotificationSchedulePreview,
+  resolveNotificationSchedulePolicy,
+  scheduleCalendarRange,
+} from "@/notifications/schedule";
 
 export class NotificationPlanningError extends Error {
   constructor(
@@ -105,6 +112,29 @@ export async function previewOccurrenceMatching(occurrenceId: string) {
   }));
   const regionIds = occurrence.regions.map((item) => item.calendarRegionId);
 
+  const globalSchedule = await getGlobalNotificationSchedule();
+  const globalScheduleVersion = globalSchedule.currentVersion
+    ? {
+        version: globalSchedule.currentVersion.version,
+        leadTimeValue: globalSchedule.currentVersion.leadTimeValue,
+        leadTimeMode: globalSchedule.currentVersion.leadTimeMode,
+        sendTimeLocal: globalSchedule.currentVersion.sendTimeLocal,
+        timezone: globalSchedule.currentVersion.timezone,
+        weekendAdjustment: globalSchedule.currentVersion.weekendAdjustment,
+        businessDayHolidayMode:
+          globalSchedule.currentVersion.businessDayHolidayMode,
+        approvalMode: globalSchedule.currentVersion.approvalMode,
+      }
+    : null;
+
+  const calendarRange = scheduleCalendarRange(
+    occurrenceDates.map((item) => item.date),
+  );
+  const publicHolidayDatesByRegion = await loadPublicHolidayDatesByRegion(
+    regionIds,
+    calendarRange,
+  );
+
   const subscriptions = await db.clientSubscription.findMany({
     where: { calendarRegionId: { in: regionIds } },
     include: {
@@ -152,6 +182,7 @@ export async function previewOccurrenceMatching(occurrenceId: string) {
                 version: version.version,
                 isActive: version.isActive,
                 holidayDayFilter: version.holidayDayFilter,
+                scheduleSource: version.scheduleSource,
                 leadTimeValue: version.leadTimeValue,
                 leadTimeMode: version.leadTimeMode,
                 sendTimeLocal: version.sendTimeLocal,
@@ -176,8 +207,66 @@ export async function previewOccurrenceMatching(occurrenceId: string) {
       occurrenceDates,
     );
 
+    const scheduleResolution =
+      result.status === "MATCHED" && result.policy
+        ? resolveNotificationSchedulePolicy({
+            source: result.policy.scheduleSource,
+            clientOverride: {
+              version: result.policy.version,
+              leadTimeValue: result.policy.leadTimeValue,
+              leadTimeMode: result.policy.leadTimeMode,
+              sendTimeLocal: result.policy.sendTimeLocal,
+              timezone: result.policy.timezone,
+              weekendAdjustment: result.policy.weekendAdjustment,
+              businessDayHolidayMode: result.policy.businessDayHolidayMode,
+              approvalMode: result.policy.approvalMode,
+            },
+            globalPolicy: globalScheduleVersion,
+          })
+        : null;
+
+    const schedule =
+      scheduleResolution?.status === "RESOLVED"
+        ? buildNotificationSchedulePreview({
+            targetHolidayDates: result.matchingDates,
+            policy: scheduleResolution.policy,
+            publicHolidayDates:
+              publicHolidayDatesByRegion.get(subscription.calendarRegionId) ??
+              new Set<string>(),
+          })
+        : scheduleResolution?.status === "BLOCKED"
+          ? {
+              status: "BLOCKED" as const,
+              reasons: scheduleResolution.reasons,
+              candidates: result.matchingDates.map((targetHolidayDate) => ({
+                status: "BLOCKED" as const,
+                targetHolidayDate,
+                reasons: scheduleResolution.reasons,
+              })),
+            }
+          : null;
+
+    const effectiveScheduleIssues =
+      scheduleResolution?.status === "RESOLVED"
+        ? policyScheduleIssues(scheduleResolution.policy)
+        : scheduleResolution?.status === "BLOCKED"
+          ? scheduleResolution.reasons
+          : [];
+
     return {
       ...result,
+      scheduleResolution:
+        scheduleResolution
+          ? {
+              source: scheduleResolution.source,
+              sourceVersion: scheduleResolution.sourceVersion,
+              ready:
+                scheduleResolution.status === "RESOLVED" &&
+                effectiveScheduleIssues.length === 0,
+              issues: effectiveScheduleIssues,
+            }
+          : null,
+      schedule,
       legacyClientMasterTag: subscription.legacyClientMasterTag,
       calendarRegion: {
         id: subscription.calendarRegion.id,
@@ -219,12 +308,63 @@ export async function previewOccurrenceMatching(occurrenceId: string) {
       excluded: results.filter((result) => result.status === "EXCLUDED").length,
       exceptions: results.filter((result) => result.status === "EXCEPTION").length,
       scheduleReady: results.filter(
-        (result) => result.status === "MATCHED" && result.policy?.scheduleReady,
+        (result) => result.status === "MATCHED" && result.schedule?.status === "READY",
       ).length,
     },
     results,
-    mode: "SHADOW_MATCHING_ONLY" as const,
+    mode: "SHADOW_MATCHING_AND_SCHEDULING" as const,
   };
+}
+
+async function loadPublicHolidayDatesByRegion(
+  regionIds: string[],
+  range: { startDate: string; endDate: string },
+): Promise<Map<string, Set<string>>> {
+  const rows = await db.holidayOccurrenceDate.findMany({
+    where: {
+      occurrenceDate: {
+        gte: dateFromKey(range.startDate),
+        lte: dateFromKey(range.endDate),
+      },
+      occurrence: {
+        supersededAt: null,
+        regions: {
+          some: { calendarRegionId: { in: regionIds } },
+        },
+      },
+    },
+    include: {
+      occurrence: {
+        select: {
+          regions: {
+            select: { calendarRegionId: true },
+          },
+        },
+      },
+    },
+    orderBy: { occurrenceDate: "asc" },
+  });
+
+  const requested = new Set(regionIds);
+  const byRegion = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const date = dateKey(row.occurrenceDate);
+
+    for (const region of row.occurrence.regions) {
+      if (!requested.has(region.calendarRegionId)) continue;
+
+      const dates = byRegion.get(region.calendarRegionId) ?? new Set<string>();
+      dates.add(date);
+      byRegion.set(region.calendarRegionId, dates);
+    }
+  }
+
+  return byRegion;
+}
+
+function dateFromKey(value: string): Date {
+  return new Date(`${value}T00:00:00.000Z`);
 }
 
 function canonicalDayType(value: string): MatchingOccurrenceDate["dayType"] {
