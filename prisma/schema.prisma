@@ -122,6 +122,7 @@ enum NotificationJobStatus {
   PLANNED
   DUE
   PROCESSING
+  RETRY_WAIT
   SENT
   FAILED
   CANCELLED
@@ -133,6 +134,14 @@ enum NotificationDeliveryAttemptStatus {
   CLAIMED
   SENT
   FAILED
+
+  @@schema("notification")
+}
+
+enum NotificationDeliveryFailureClass {
+  RETRYABLE
+  TERMINAL
+  OUTCOME_UNKNOWN
 
   @@schema("notification")
 }
@@ -689,6 +698,7 @@ model NotificationJob {
   retryCeiling                        Int?
   dueAt                               DateTime?                          @db.Timestamptz(3)
   attemptCount                        Int                                @default(0)
+  retryAt                             DateTime?                          @db.Timestamptz(3)
   sentAt                              DateTime?                          @db.Timestamptz(3)
   failedAt                            DateTime?                          @db.Timestamptz(3)
   lastError                           String?                            @db.Text
@@ -703,6 +713,7 @@ model NotificationJob {
   deliveryAttempts                    NotificationDeliveryAttempt[]
 
   @@index([status, scheduledAt], map: "notification_jobs_status_scheduled_at_idx")
+  @@index([status, retryAt], map: "notification_jobs_status_retry_at_idx")
   @@index([holidayOccurrenceId, createdAt], map: "notification_jobs_occurrence_created_at_idx")
   @@index([clientSubscriptionId, scheduledAt], map: "notification_jobs_subscription_scheduled_at_idx")
   @@index([notificationPolicyVersionId], map: "notification_jobs_policy_version_idx")
@@ -721,6 +732,8 @@ model NotificationDeliveryAttempt {
   completedAt       DateTime?                         @db.Timestamptz(3)
   provider          String?                           @db.VarChar(100)
   providerMessageId String?                           @db.VarChar(500)
+  failureClass      NotificationDeliveryFailureClass?
+  leaseRetrySafe    Boolean                           @default(false)
   errorCode         String?                           @db.VarChar(120)
   errorMessage      String?                           @db.Text
   createdAt         DateTime                          @default(now()) @db.Timestamptz(3)

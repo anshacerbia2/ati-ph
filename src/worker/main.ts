@@ -7,6 +7,8 @@ import {
 import {
   claimDueNotificationJobs,
   completeNotificationDeliveryAttempt,
+  promoteRetryableNotificationJobs,
+  recoverExpiredNotificationDeliveryClaims,
 } from "@/notifications/delivery";
 import {
   executeStreamNotificationDelivery,
@@ -30,9 +32,12 @@ async function maintenanceCycle(
   deliveryLeaseSeconds: number,
   emailDelivery: ConfiguredEmailDelivery | null,
 ): Promise<void> {
-  const sessionCleanup = await db.authSession.deleteMany({
-    where: { expiresAt: { lte: new Date() } },
-  });
+  const sessionCleanup =
+    await db.authSession.deleteMany({
+      where: {
+        expiresAt: { lte: new Date() },
+      },
+    });
 
   if (sessionCleanup.count > 0) {
     console.info(
@@ -51,6 +56,31 @@ async function maintenanceCycle(
     );
   }
 
+  const recovered =
+    await recoverExpiredNotificationDeliveryClaims(
+      db,
+      {
+        batchSize: deliveryBatchSize,
+      },
+    );
+
+  if (recovered.count > 0) {
+    console.warn(
+      `Recovered ${recovered.count} expired delivery claim(s): ${recovered.retryScheduledCount} retry scheduled, ${recovered.terminalFailureCount} terminal.`,
+    );
+  }
+
+  const retriesDue =
+    await promoteRetryableNotificationJobs(db, {
+      batchSize: deliveryBatchSize,
+    });
+
+  if (retriesDue.count > 0) {
+    console.info(
+      `Notification delivery promoted ${retriesDue.count} retry job(s) to DUE.`,
+    );
+  }
+
   if (
     emailDelivery?.mode === "STREAM"
   ) {
@@ -58,6 +88,9 @@ async function maintenanceCycle(
       await claimDueNotificationJobs(db, {
         batchSize: deliveryBatchSize,
         leaseSeconds: deliveryLeaseSeconds,
+        provider:
+          emailDelivery.transportCode,
+        leaseRetrySafe: true,
       });
 
     for (const claim of claims) {
@@ -91,7 +124,9 @@ async function maintenanceCycle(
   }
 }
 
-async function wait(milliseconds: number): Promise<void> {
+async function wait(
+  milliseconds: number,
+): Promise<void> {
   await new Promise((resolve) =>
     setTimeout(resolve, milliseconds),
   );
@@ -119,8 +154,8 @@ async function main(): Promise<void> {
 
   console.info(
     emailDelivery?.mode === "STREAM"
-      ? "ati-ph worker started (session maintenance + due scheduler + safe STREAM notification delivery)"
-      : "ati-ph worker started (session maintenance + due scheduler; notification email execution disabled)",
+      ? "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery + safe STREAM notification delivery)"
+      : "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery; notification email execution disabled)",
   );
 
   while (!stopping) {
@@ -132,7 +167,10 @@ async function main(): Promise<void> {
         emailDelivery,
       );
     } catch (error) {
-      console.error("ati-ph worker cycle failed", error);
+      console.error(
+        "ati-ph worker cycle failed",
+        error,
+      );
     }
 
     if (!stopping) {
@@ -141,7 +179,10 @@ async function main(): Promise<void> {
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
+for (const signal of [
+  "SIGINT",
+  "SIGTERM",
+] as const) {
   process.on(signal, () => {
     stopping = true;
   });
@@ -149,7 +190,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 main()
   .catch((error) => {
-    console.error("ati-ph worker failed to start", error);
+    console.error(
+      "ati-ph worker failed to start",
+      error,
+    );
     process.exitCode = 1;
   })
   .finally(async () => {

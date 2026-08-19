@@ -4,8 +4,12 @@ import type {
 import type {
   NotificationDeliveryClaim,
 } from "@/notifications/delivery";
+import type {
+  NotificationDeliveryFailureClass,
+} from "@/notifications/delivery-rules";
 import {
   composeStreamNotificationEmail,
+  NotificationEmailComposerError,
 } from "@/notifications/email-composer";
 
 type DeliveryCompletionInput = {
@@ -19,9 +23,16 @@ type DeliveryCompletionInput = {
     | {
         status: "FAILED";
         provider: string;
+        failureClass:
+          NotificationDeliveryFailureClass;
         errorCode?: string | null;
         errorMessage: string;
       };
+};
+
+type DeliveryCompletionResult = {
+  status: "SENT" | "RETRY_WAIT" | "FAILED";
+  retryAt?: Date | null;
 };
 
 export async function executeStreamNotificationDelivery(
@@ -32,7 +43,7 @@ export async function executeStreamNotificationDelivery(
     transportCode: string;
     complete: (
       input: DeliveryCompletionInput,
-    ) => Promise<unknown>;
+    ) => Promise<DeliveryCompletionResult>;
   },
 ): Promise<
   | {
@@ -42,10 +53,11 @@ export async function executeStreamNotificationDelivery(
       providerMessageId: string | null;
     }
   | {
-      status: "FAILED";
+      status: "RETRY_WAIT" | "FAILED";
       attemptId: string;
       jobId: string;
       errorMessage: string;
+      retryAt: Date | null;
     }
 > {
   try {
@@ -82,22 +94,40 @@ export async function executeStreamNotificationDelivery(
         ? error.message
         : String(error);
 
-    await input.complete({
-      attemptId: input.claim.attemptId,
-      outcome: {
-        status: "FAILED",
-        provider: input.transportCode,
-        errorCode:
-          "STREAM_DELIVERY_EXECUTION_FAILED",
-        errorMessage,
-      },
-    });
+    const failureClass:
+      NotificationDeliveryFailureClass =
+      error instanceof
+      NotificationEmailComposerError
+        ? "TERMINAL"
+        : "RETRYABLE";
+
+    const completion =
+      await input.complete({
+        attemptId: input.claim.attemptId,
+        outcome: {
+          status: "FAILED",
+          provider: input.transportCode,
+          failureClass,
+          errorCode:
+            failureClass === "TERMINAL"
+              ? "STREAM_COMPOSITION_FAILED"
+              : "STREAM_DELIVERY_EXECUTION_FAILED",
+          errorMessage,
+        },
+      });
+
+    if (completion.status === "SENT") {
+      throw new Error(
+        "Failed delivery completion unexpectedly returned SENT.",
+      );
+    }
 
     return {
-      status: "FAILED",
+      status: completion.status,
       attemptId: input.claim.attemptId,
       jobId: input.claim.jobId,
       errorMessage,
+      retryAt: completion.retryAt ?? null,
     };
   }
 }

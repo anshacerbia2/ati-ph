@@ -13,7 +13,7 @@ import {
 } from "@/notifications/email-delivery-executor";
 
 describe("notification STREAM delivery executor", () => {
-  it("runs claim -> composer -> email engine -> completion without network delivery", async () => {
+  function buildEngine() {
     const routes =
       new StaticEmailRouteResolver({
         identities: [
@@ -37,10 +37,18 @@ describe("notification STREAM delivery executor", () => {
 
     const registry =
       new EmailTransportRegistry();
+
     registry.register(
       new StreamEmailTransport("SAFE_STREAM"),
     );
 
+    return new EmailDeliveryEngine(
+      routes,
+      registry,
+    );
+  }
+
+  it("runs claim -> composer -> email engine -> completion without network delivery", async () => {
     const completions: unknown[] = [];
 
     const result =
@@ -75,16 +83,16 @@ describe("notification STREAM delivery executor", () => {
               "2026-12-25",
           },
         },
-        emailEngine:
-          new EmailDeliveryEngine(
-            routes,
-            registry,
-          ),
+        emailEngine: buildEngine(),
         senderIdentityCode:
           "PH_NOTIFICATION",
         transportCode: "SAFE_STREAM",
         complete: async (completion) => {
           completions.push(completion);
+          return {
+            status: "SENT" as const,
+            retryAt: null,
+          };
         },
       });
 
@@ -95,6 +103,50 @@ describe("notification STREAM delivery executor", () => {
       outcome: {
         status: "SENT",
         provider: "SAFE_STREAM",
+      },
+    });
+  });
+
+  it("classifies invalid frozen content as terminal", async () => {
+    const completions: unknown[] = [];
+
+    const result =
+      await executeStreamNotificationDelivery({
+        claim: {
+          attemptId: "attempt-2",
+          jobId: "job-2",
+          attemptNumber: 1,
+          leaseExpiresAt:
+            new Date("2099-01-01T00:00:00Z"),
+          idempotencyKey:
+            "invalid-job-key",
+          retryCeiling: 3,
+          recipientSnapshot: {
+            to: [],
+            cc: [],
+          },
+          ruleSnapshot: {},
+        },
+        emailEngine: buildEngine(),
+        senderIdentityCode:
+          "PH_NOTIFICATION",
+        transportCode: "SAFE_STREAM",
+        complete: async (completion) => {
+          completions.push(completion);
+          return {
+            status: "FAILED" as const,
+            retryAt: null,
+          };
+        },
+      });
+
+    expect(result.status).toBe("FAILED");
+    expect(completions[0]).toMatchObject({
+      outcome: {
+        status: "FAILED",
+        failureClass: "TERMINAL",
+        errorCode:
+          "STREAM_COMPOSITION_FAILED",
       },
     });
   });

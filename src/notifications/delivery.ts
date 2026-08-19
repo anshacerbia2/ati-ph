@@ -5,6 +5,8 @@ import {
 
 import {
   notificationDeliveryClaimEligibility,
+  notificationDeliveryRetryDecision,
+  type NotificationDeliveryFailureClass,
 } from "@/notifications/delivery-rules";
 
 export class NotificationDeliveryError extends Error {
@@ -38,19 +40,14 @@ export async function claimDueNotificationJobs(
     now?: Date;
     batchSize: number;
     leaseSeconds: number;
+    provider: string;
+    leaseRetrySafe: boolean;
   },
 ): Promise<NotificationDeliveryClaim[]> {
   const now = input.now ?? new Date();
+  const provider = input.provider.trim();
 
-  if (
-    !Number.isInteger(input.batchSize) ||
-    input.batchSize < 1 ||
-    input.batchSize > 100
-  ) {
-    throw new Error(
-      "Notification delivery batch size must be between 1 and 100.",
-    );
-  }
+  validateBatchSize(input.batchSize);
 
   if (
     !Number.isInteger(input.leaseSeconds) ||
@@ -59,6 +56,13 @@ export async function claimDueNotificationJobs(
   ) {
     throw new Error(
       "Notification delivery lease must be between 30 and 3600 seconds.",
+    );
+  }
+
+  if (!provider) {
+    throw new NotificationDeliveryError(
+      "DELIVERY_RESULT_INVALID",
+      "Notification delivery claim requires a provider/transport code.",
     );
   }
 
@@ -112,6 +116,7 @@ export async function claimDueNotificationJobs(
         data: {
           status: "PROCESSING",
           attemptCount: attemptNumber,
+          retryAt: null,
           failedAt: null,
           lastError: null,
         },
@@ -125,6 +130,9 @@ export async function claimDueNotificationJobs(
             status: "CLAIMED",
             claimedAt: now,
             leaseExpiresAt,
+            provider,
+            leaseRetrySafe:
+              input.leaseRetrySafe,
           },
           select: { id: true },
         });
@@ -147,7 +155,8 @@ export async function claimDueNotificationJobs(
           userId: null,
           action:
             "NOTIFICATION_DELIVERY_JOBS_CLAIMED",
-          entityType: "NotificationDeliveryWorker",
+          entityType:
+            "NotificationDeliveryWorker",
           entityId: null,
           metadata: {
             count: claims.length,
@@ -157,6 +166,9 @@ export async function claimDueNotificationJobs(
             jobIds: claims.map(
               (claim) => claim.jobId,
             ),
+            provider,
+            leaseRetrySafe:
+              input.leaseRetrySafe,
             claimedAt: now.toISOString(),
             leaseExpiresAt:
               leaseExpiresAt.toISOString(),
@@ -166,6 +178,202 @@ export async function claimDueNotificationJobs(
     }
 
     return claims;
+  });
+}
+
+export async function promoteRetryableNotificationJobs(
+  database: PrismaClient,
+  input: {
+    now?: Date;
+    batchSize: number;
+  },
+): Promise<{
+  count: number;
+  jobIds: string[];
+}> {
+  const now = input.now ?? new Date();
+  validateBatchSize(input.batchSize);
+
+  return database.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<
+      Array<{ id: string }>
+    >(
+      Prisma.sql`
+        SELECT job."id"
+        FROM "notification"."notification_jobs" AS job
+        WHERE job."status" =
+          'RETRY_WAIT'::"notification"."NotificationJobStatus"
+          AND job."retryAt" <= ${now}
+          AND job."automaticSendAllowed" = TRUE
+        ORDER BY job."retryAt" ASC, job."id" ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${input.batchSize}
+      `,
+    );
+
+    const jobIds = rows.map((row) => row.id);
+
+    if (jobIds.length === 0) {
+      return { count: 0, jobIds: [] };
+    }
+
+    await tx.notificationJob.updateMany({
+      where: {
+        id: { in: jobIds },
+        status: "RETRY_WAIT",
+      },
+      data: {
+        status: "DUE",
+        retryAt: null,
+      },
+    });
+
+    await tx.auditEvent.create({
+      data: {
+        userId: null,
+        action:
+          "NOTIFICATION_DELIVERY_RETRIES_DUE",
+        entityType:
+          "NotificationDeliveryWorker",
+        entityId: null,
+        metadata: {
+          count: jobIds.length,
+          jobIds,
+          promotedAt: now.toISOString(),
+        },
+      },
+    });
+
+    return {
+      count: jobIds.length,
+      jobIds,
+    };
+  });
+}
+
+export async function recoverExpiredNotificationDeliveryClaims(
+  database: PrismaClient,
+  input: {
+    now?: Date;
+    batchSize: number;
+  },
+): Promise<{
+  count: number;
+  retryScheduledCount: number;
+  terminalFailureCount: number;
+  attemptIds: string[];
+  jobIds: string[];
+}> {
+  const now = input.now ?? new Date();
+  validateBatchSize(input.batchSize);
+
+  return database.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<
+      Array<{ id: string }>
+    >(
+      Prisma.sql`
+        SELECT attempt."id"
+        FROM "notification"."notification_delivery_attempts" AS attempt
+        INNER JOIN "notification"."notification_jobs" AS job
+          ON job."id" = attempt."notificationJobId"
+        WHERE attempt."status" =
+          'CLAIMED'::"notification"."NotificationDeliveryAttemptStatus"
+          AND attempt."leaseExpiresAt" <= ${now}
+          AND job."status" =
+            'PROCESSING'::"notification"."NotificationJobStatus"
+        ORDER BY attempt."leaseExpiresAt" ASC, attempt."id" ASC
+        FOR UPDATE OF attempt SKIP LOCKED
+        LIMIT ${input.batchSize}
+      `,
+    );
+
+    const results: Array<{
+      attemptId: string;
+      jobId: string;
+      status: "RETRY_WAIT" | "FAILED";
+    }> = [];
+
+    for (const row of rows) {
+      const attempt =
+        await tx.notificationDeliveryAttempt.findUniqueOrThrow({
+          where: { id: row.id },
+          include: {
+            notificationJob: {
+              select: {
+                id: true,
+                status: true,
+                retryCeiling: true,
+              },
+            },
+          },
+        });
+
+      if (
+        attempt.status !== "CLAIMED" ||
+        attempt.notificationJob.status !==
+          "PROCESSING"
+      ) {
+        continue;
+      }
+
+      const retrySafe =
+        attempt.leaseRetrySafe === true;
+      const failureClass:
+        NotificationDeliveryFailureClass =
+        retrySafe
+          ? "RETRYABLE"
+          : "OUTCOME_UNKNOWN";
+
+      const failure =
+        retrySafe
+          ? {
+              errorCode:
+                "DELIVERY_LEASE_EXPIRED_RETRY_SAFE",
+              errorMessage:
+                "Delivery worker lease expired before completion; the claimed transport is marked retry-safe after lease expiry.",
+            }
+          : {
+              errorCode:
+                "DELIVERY_OUTCOME_UNKNOWN_AFTER_LEASE",
+              errorMessage:
+                "Delivery worker lease expired after an external side effect may have occurred. Automatic retry is blocked to avoid duplicate delivery.",
+            };
+
+      const result = await failClaimedAttempt(
+        tx,
+        {
+          attempt,
+          now,
+          provider:
+            attempt.provider?.trim() ||
+            "UNKNOWN",
+          failureClass,
+          errorCode: failure.errorCode,
+          errorMessage:
+            failure.errorMessage,
+        },
+      );
+
+      results.push(result);
+    }
+
+    return {
+      count: results.length,
+      retryScheduledCount: results.filter(
+        (result) =>
+          result.status === "RETRY_WAIT",
+      ).length,
+      terminalFailureCount: results.filter(
+        (result) =>
+          result.status === "FAILED",
+      ).length,
+      attemptIds: results.map(
+        (result) => result.attemptId,
+      ),
+      jobIds: results.map(
+        (result) => result.jobId,
+      ),
+    };
   });
 }
 
@@ -183,15 +391,18 @@ export async function completeNotificationDeliveryAttempt(
       | {
           status: "FAILED";
           provider: string;
+          failureClass:
+            NotificationDeliveryFailureClass;
           errorCode?: string | null;
           errorMessage: string;
         };
   },
 ) {
   const now = input.now ?? new Date();
+  const provider = input.outcome.provider.trim();
 
   if (
-    !input.outcome.provider.trim() ||
+    !provider ||
     (input.outcome.status === "FAILED" &&
       !input.outcome.errorMessage.trim())
   ) {
@@ -228,6 +439,7 @@ export async function completeNotificationDeliveryAttempt(
             select: {
               id: true,
               status: true,
+              retryCeiling: true,
             },
           },
         },
@@ -235,7 +447,8 @@ export async function completeNotificationDeliveryAttempt(
 
     if (
       attempt.status !== "CLAIMED" ||
-      attempt.notificationJob.status !== "PROCESSING"
+      attempt.notificationJob.status !==
+        "PROCESSING"
     ) {
       throw new NotificationDeliveryError(
         "DELIVERY_ATTEMPT_NOT_CLAIMED",
@@ -243,16 +456,30 @@ export async function completeNotificationDeliveryAttempt(
       );
     }
 
-    if (attempt.leaseExpiresAt.getTime() < now.getTime()) {
+    if (
+      attempt.leaseExpiresAt.getTime() <=
+      now.getTime()
+    ) {
       throw new NotificationDeliveryError(
         "DELIVERY_LEASE_EXPIRED",
         "Notification delivery claim lease has expired.",
       );
     }
 
-    if (input.outcome.status === "SENT") {
-      const provider = input.outcome.provider.trim();
+    const claimedProvider =
+      attempt.provider?.trim();
 
+    if (
+      claimedProvider &&
+      claimedProvider !== provider
+    ) {
+      throw new NotificationDeliveryError(
+        "DELIVERY_RESULT_INVALID",
+        `Delivery completion provider ${provider} does not match claimed provider ${claimedProvider}.`,
+      );
+    }
+
+    if (input.outcome.status === "SENT") {
       await tx.notificationDeliveryAttempt.update({
         where: { id: attempt.id },
         data: {
@@ -262,13 +489,19 @@ export async function completeNotificationDeliveryAttempt(
           providerMessageId:
             input.outcome.providerMessageId?.trim() ||
             null,
+          failureClass: null,
+          errorCode: null,
+          errorMessage: null,
         },
       });
 
       await tx.notificationJob.update({
-        where: { id: attempt.notificationJob.id },
+        where: {
+          id: attempt.notificationJob.id,
+        },
         data: {
           status: "SENT",
+          retryAt: null,
           sentAt: now,
           failedAt: null,
           lastError: null,
@@ -278,12 +511,16 @@ export async function completeNotificationDeliveryAttempt(
       await tx.auditEvent.create({
         data: {
           userId: null,
-          action: "NOTIFICATION_DELIVERY_SENT",
-          entityType: "NotificationDeliveryAttempt",
+          action:
+            "NOTIFICATION_DELIVERY_SENT",
+          entityType:
+            "NotificationDeliveryAttempt",
           entityId: attempt.id,
           metadata: {
-            jobId: attempt.notificationJob.id,
-            attemptNumber: attempt.attemptNumber,
+            jobId:
+              attempt.notificationJob.id,
+            attemptNumber:
+              attempt.attemptNumber,
             provider,
             completedAt: now.toISOString(),
           },
@@ -292,14 +529,19 @@ export async function completeNotificationDeliveryAttempt(
 
       await tx.outboxEvent.create({
         data: {
-          topic: "notification.delivery.sent",
-          aggregateType: "NotificationJob",
-          aggregateId: attempt.notificationJob.id,
+          topic:
+            "notification.delivery.sent",
+          aggregateType:
+            "NotificationJob",
+          aggregateId:
+            attempt.notificationJob.id,
           payload: {
             eventVersion: 1,
-            jobId: attempt.notificationJob.id,
+            jobId:
+              attempt.notificationJob.id,
             attemptId: attempt.id,
-            attemptNumber: attempt.attemptNumber,
+            attemptNumber:
+              attempt.attemptNumber,
             provider,
             occurredAt: now.toISOString(),
           },
@@ -308,70 +550,248 @@ export async function completeNotificationDeliveryAttempt(
 
       return {
         attemptId: attempt.id,
-        jobId: attempt.notificationJob.id,
+        jobId:
+          attempt.notificationJob.id,
         status: "SENT" as const,
+        retryAt: null,
       };
     }
 
-    const provider = input.outcome.provider.trim();
-    const errorMessage = input.outcome.errorMessage.trim();
+    return failClaimedAttempt(tx, {
+      attempt,
+      now,
+      provider,
+      failureClass:
+        input.outcome.failureClass,
+      errorCode:
+        input.outcome.errorCode?.trim() ||
+        null,
+      errorMessage:
+        input.outcome.errorMessage.trim(),
+    });
+  });
+}
 
-    await tx.notificationDeliveryAttempt.update({
-      where: { id: attempt.id },
-      data: {
-        status: "FAILED",
-        completedAt: now,
-        provider,
-        errorCode:
-          input.outcome.errorCode?.trim() || null,
-        errorMessage,
-      },
+type ClaimedAttempt = {
+  id: string;
+  attemptNumber: number;
+  provider: string | null;
+  leaseRetrySafe: boolean;
+  notificationJob: {
+    id: string;
+    status:
+      | "WAITING_APPROVAL"
+      | "PLANNED"
+      | "DUE"
+      | "PROCESSING"
+      | "RETRY_WAIT"
+      | "SENT"
+      | "FAILED"
+      | "CANCELLED";
+    retryCeiling: number | null;
+  };
+};
+
+async function failClaimedAttempt(
+  tx: Prisma.TransactionClient,
+  input: {
+    attempt: ClaimedAttempt;
+    now: Date;
+    provider: string;
+    failureClass:
+      NotificationDeliveryFailureClass;
+    errorCode: string | null;
+    errorMessage: string;
+  },
+): Promise<{
+  attemptId: string;
+  jobId: string;
+  status: "RETRY_WAIT" | "FAILED";
+  retryAt: Date | null;
+}> {
+  const decision =
+    notificationDeliveryRetryDecision({
+      failureClass: input.failureClass,
+      attemptNumber:
+        input.attempt.attemptNumber,
+      retryCeiling:
+        input.attempt.notificationJob
+          .retryCeiling,
+      now: input.now,
     });
 
+  await tx.notificationDeliveryAttempt.update({
+    where: { id: input.attempt.id },
+    data: {
+      status: "FAILED",
+      completedAt: input.now,
+      provider: input.provider,
+      failureClass: input.failureClass,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage,
+    },
+  });
+
+  if (decision.action === "RETRY") {
     await tx.notificationJob.update({
-      where: { id: attempt.notificationJob.id },
+      where: {
+        id: input.attempt.notificationJob.id,
+      },
       data: {
-        status: "FAILED",
-        failedAt: now,
-        lastError: errorMessage,
+        status: "RETRY_WAIT",
+        retryAt: decision.retryAt,
+        failedAt: null,
+        lastError: input.errorMessage,
       },
     });
 
     await tx.auditEvent.create({
       data: {
         userId: null,
-        action: "NOTIFICATION_DELIVERY_FAILED",
-        entityType: "NotificationDeliveryAttempt",
-        entityId: attempt.id,
+        action:
+          "NOTIFICATION_DELIVERY_RETRY_SCHEDULED",
+        entityType:
+          "NotificationDeliveryAttempt",
+        entityId: input.attempt.id,
         metadata: {
-          jobId: attempt.notificationJob.id,
-          attemptNumber: attempt.attemptNumber,
-          provider,
-          completedAt: now.toISOString(),
+          jobId:
+            input.attempt.notificationJob.id,
+          attemptNumber:
+            input.attempt.attemptNumber,
+          provider: input.provider,
+          failureClass:
+            input.failureClass,
+          retryNumber:
+            decision.retryNumber,
+          retryAt:
+            decision.retryAt.toISOString(),
+          delaySeconds:
+            decision.delaySeconds,
+          remainingRetries:
+            decision.remainingRetries,
+          retryCeiling:
+            decision.retryCeiling,
         },
       },
     });
 
     await tx.outboxEvent.create({
       data: {
-        topic: "notification.delivery.failed",
-        aggregateType: "NotificationJob",
-        aggregateId: attempt.notificationJob.id,
+        topic:
+          "notification.delivery.retry_scheduled",
+        aggregateType:
+          "NotificationJob",
+        aggregateId:
+          input.attempt.notificationJob.id,
         payload: {
           eventVersion: 1,
-          jobId: attempt.notificationJob.id,
-          attemptId: attempt.id,
-          attemptNumber: attempt.attemptNumber,
-          provider,
-          occurredAt: now.toISOString(),
+          jobId:
+            input.attempt.notificationJob.id,
+          attemptId: input.attempt.id,
+          attemptNumber:
+            input.attempt.attemptNumber,
+          provider: input.provider,
+          failureClass:
+            input.failureClass,
+          retryNumber:
+            decision.retryNumber,
+          retryAt:
+            decision.retryAt.toISOString(),
+          occurredAt:
+            input.now.toISOString(),
         },
       },
     });
 
     return {
-      attemptId: attempt.id,
-      jobId: attempt.notificationJob.id,
-      status: "FAILED" as const,
+      attemptId: input.attempt.id,
+      jobId:
+        input.attempt.notificationJob.id,
+      status: "RETRY_WAIT",
+      retryAt: decision.retryAt,
     };
+  }
+
+  await tx.notificationJob.update({
+    where: {
+      id: input.attempt.notificationJob.id,
+    },
+    data: {
+      status: "FAILED",
+      retryAt: null,
+      failedAt: input.now,
+      lastError: input.errorMessage,
+    },
   });
+
+  await tx.auditEvent.create({
+    data: {
+      userId: null,
+      action:
+        "NOTIFICATION_DELIVERY_FAILED",
+      entityType:
+        "NotificationDeliveryAttempt",
+      entityId: input.attempt.id,
+      metadata: {
+        jobId:
+          input.attempt.notificationJob.id,
+        attemptNumber:
+          input.attempt.attemptNumber,
+        provider: input.provider,
+        failureClass:
+          input.failureClass,
+        terminalReason: decision.reason,
+        retryCeiling:
+          decision.retryCeiling,
+        retriesUsed:
+          decision.retriesUsed,
+        completedAt:
+          input.now.toISOString(),
+      },
+    },
+  });
+
+  await tx.outboxEvent.create({
+    data: {
+      topic:
+        "notification.delivery.failed",
+      aggregateType: "NotificationJob",
+      aggregateId:
+        input.attempt.notificationJob.id,
+      payload: {
+        eventVersion: 1,
+        jobId:
+          input.attempt.notificationJob.id,
+        attemptId: input.attempt.id,
+        attemptNumber:
+          input.attempt.attemptNumber,
+        provider: input.provider,
+        failureClass:
+          input.failureClass,
+        terminalReason: decision.reason,
+        occurredAt:
+          input.now.toISOString(),
+      },
+    },
+  });
+
+  return {
+    attemptId: input.attempt.id,
+    jobId:
+      input.attempt.notificationJob.id,
+    status: "FAILED",
+    retryAt: null,
+  };
+}
+
+function validateBatchSize(batchSize: number) {
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > 100
+  ) {
+    throw new Error(
+      "Notification delivery batch size must be between 1 and 100.",
+    );
+  }
 }
