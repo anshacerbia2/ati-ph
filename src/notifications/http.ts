@@ -1,4 +1,7 @@
 import { NotificationJobError } from "@/notifications/jobs";
+import {
+  NotificationApprovalError,
+} from "@/notifications/notification-approval";
 import { NotificationPlanningError } from "@/notifications/planning";
 import { NotificationPolicyError } from "@/notifications/policy";
 
@@ -14,7 +17,8 @@ export function notificationErrorResponse(error: unknown, operation: string): Re
   if (
     error instanceof NotificationPolicyError ||
     error instanceof NotificationPlanningError ||
-    error instanceof NotificationJobError
+    error instanceof NotificationJobError ||
+    error instanceof NotificationApprovalError
   ) {
     return Response.json(
       { error: error.message, code: error.code },

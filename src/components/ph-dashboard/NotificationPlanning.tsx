@@ -14,6 +14,13 @@ type Occurrence = {
   endDate: string;
   calendarYear: number;
   notificationCommittedAt: string | null;
+  approvalState:
+    | "NOT_COMMITTED"
+    | "NOT_REQUIRED"
+    | "REQUIRED"
+    | "PENDING"
+    | "APPROVED"
+    | "REJECTED";
   regions: Array<{ id: string; code: string; displayName: string }>;
 };
 
@@ -77,6 +84,34 @@ type PreviewResult = {
   cc: Array<{ contactId: string; displayName: string | null; email: string }>;
 };
 
+type ApprovalView = {
+  state:
+    | "NOT_COMMITTED"
+    | "NOT_REQUIRED"
+    | "REQUIRED"
+    | "PENDING"
+    | "APPROVED"
+    | "REJECTED";
+  counts: {
+    waitingApproval: number;
+    planned: number;
+    due: number;
+    processing: number;
+    sent: number;
+    failed: number;
+    cancelled: number;
+  };
+  approval: {
+    id: string;
+    status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+    requestedAt: string;
+    decidedAt: string | null;
+    decisionReason: string | null;
+  } | null;
+  makerCheckerBlocked: boolean;
+  error?: string;
+};
+
 type Preview = {
   occurrence: {
     id: string;
@@ -120,8 +155,10 @@ const EMPTY_PAGINATION: Pagination = { page: 1, pageSize: PAGE_SIZE, pageCount: 
 
 export function NotificationPlanning({
   canCommit,
+  canApprove,
 }: {
   canCommit: boolean;
+  canApprove: boolean;
 }) {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [pagination, setPagination] = useState<Pagination>(EMPTY_PAGINATION);
@@ -130,6 +167,10 @@ export function NotificationPlanning({
   const [preview, setPreview] = useState<Preview>();
   const [commitBusy, setCommitBusy] = useState(false);
   const [commitNotice, setCommitNotice] = useState<string>();
+  const [approval, setApproval] = useState<ApprovalView>();
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalNotice, setApprovalNotice] = useState<string>();
+  const [decisionNote, setDecisionNote] = useState("");
   const [error, setError] = useState<string>();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -196,10 +237,30 @@ export function NotificationPlanning({
     setPage(nextPage);
   }
 
+  async function loadApprovalState(occurrenceId: string) {
+    const response = await fetch(
+      mountedPath(
+        `/api/notification-planning/approval/${occurrenceId}`,
+      ),
+      { cache: "no-store" },
+    );
+    const payload = (await response.json()) as ApprovalView;
+    if (!response.ok) {
+      throw new Error(
+        payload.error ?? "Could not load notification approval state.",
+      );
+    }
+    setApproval(payload);
+    return payload;
+  }
+
   async function openPreview(occurrenceId: string) {
     setPreviewLoadingId(occurrenceId);
     setError(undefined);
     setCommitNotice(undefined);
+    setApprovalNotice(undefined);
+    setDecisionNote("");
+    setApproval(undefined);
     try {
       const response = await fetch(
         mountedPath(`/api/notification-planning/preview/${occurrenceId}`),
@@ -208,6 +269,9 @@ export function NotificationPlanning({
       const payload = (await response.json()) as Preview;
       if (!response.ok) throw new Error(payload.error ?? "Could not build matching preview.");
       setPreview(payload);
+      if (payload.commit.state === "COMMITTED") {
+        await loadApprovalState(occurrenceId);
+      }
     } catch (previewError) {
       setError(errorMessage(previewError));
     } finally {
@@ -253,6 +317,90 @@ export function NotificationPlanning({
       setError(errorMessage(commitError));
     } finally {
       setCommitBusy(false);
+    }
+  }
+
+  async function requestApproval() {
+    if (!preview || preview.commit.state !== "COMMITTED") return;
+
+    setApprovalBusy(true);
+    setError(undefined);
+    setApprovalNotice(undefined);
+
+    try {
+      const occurrenceId = preview.occurrence.id;
+      const response = await fetch(
+        mountedPath(
+          `/api/notification-planning/approval/${occurrenceId}`,
+        ),
+        { method: "POST" },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          payload.error ?? "Could not request notification approval.",
+        );
+      }
+      const refreshedOccurrences = await load(
+        search,
+        page,
+      );
+      apply(refreshedOccurrences);
+      await loadApprovalState(occurrenceId);
+      setApprovalNotice("Approval requested.");
+    } catch (approvalError) {
+      setError(errorMessage(approvalError));
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
+
+  async function decideApproval(
+    decision: "APPROVE" | "REJECT",
+  ) {
+    if (!preview || preview.commit.state !== "COMMITTED") return;
+
+    setApprovalBusy(true);
+    setError(undefined);
+    setApprovalNotice(undefined);
+
+    try {
+      const occurrenceId = preview.occurrence.id;
+      const response = await fetch(
+        mountedPath(
+          `/api/notification-planning/approval/${occurrenceId}`,
+        ),
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            decision,
+            reason: decisionNote,
+          }),
+        },
+      );
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          payload.error ?? "Could not decide notification approval.",
+        );
+      }
+      const refreshedOccurrences = await load(
+        search,
+        page,
+      );
+      apply(refreshedOccurrences);
+      await loadApprovalState(occurrenceId);
+      setDecisionNote("");
+      setApprovalNotice(
+        decision === "APPROVE"
+          ? "Approval accepted. Waiting jobs are now PLANNED."
+          : "Approval rejected. Waiting jobs are now CANCELLED.",
+      );
+    } catch (approvalError) {
+      setError(errorMessage(approvalError));
+    } finally {
+      setApprovalBusy(false);
     }
   }
 
@@ -320,6 +468,17 @@ export function NotificationPlanning({
                     Committed
                   </span>
                 ) : null}
+                {occurrence.approvalState !== "NOT_COMMITTED" ? (
+                  <span
+                    className={approvalListClassName(
+                      occurrence.approvalState,
+                    )}
+                  >
+                    {approvalListLabel(
+                      occurrence.approvalState,
+                    )}
+                  </span>
+                ) : null}
               </div>
               <button className="ati-btn ati-btn--secondary" disabled={previewLoadingId === occurrence.id} onClick={() => void openPreview(occurrence.id)} type="button">
                 {previewLoadingId === occurrence.id ? "Planning…" : "Preview plan"}
@@ -337,11 +496,19 @@ export function NotificationPlanning({
 
       {preview ? (
         <MatchingPreviewModal
+          approval={approval}
+          approvalBusy={approvalBusy}
+          approvalNotice={approvalNotice}
+          canApprove={canApprove}
           canCommit={canCommit}
           commitBusy={commitBusy}
           commitNotice={commitNotice}
+          decisionNote={decisionNote}
           onClose={() => setPreview(undefined)}
           onCommit={() => void commitPlan()}
+          onDecisionNote={setDecisionNote}
+          onDecideApproval={(decision) => void decideApproval(decision)}
+          onRequestApproval={() => void requestApproval()}
           preview={preview}
         />
       ) : null}
@@ -351,17 +518,33 @@ export function NotificationPlanning({
 
 function MatchingPreviewModal({
   preview,
+  approval,
   canCommit,
+  canApprove,
   commitBusy,
   commitNotice,
+  approvalBusy,
+  approvalNotice,
+  decisionNote,
   onCommit,
+  onRequestApproval,
+  onDecideApproval,
+  onDecisionNote,
   onClose,
 }: {
   preview: Preview;
+  approval: ApprovalView | undefined;
   canCommit: boolean;
+  canApprove: boolean;
   commitBusy: boolean;
   commitNotice: string | undefined;
+  approvalBusy: boolean;
+  approvalNotice: string | undefined;
+  decisionNote: string;
   onCommit: () => void;
+  onRequestApproval: () => void;
+  onDecideApproval: (decision: "APPROVE" | "REJECT") => void;
+  onDecisionNote: (value: string) => void;
   onClose: () => void;
 }) {
   return createPortal(
@@ -429,6 +612,89 @@ function MatchingPreviewModal({
             </button>
           ) : null}
         </div>
+
+        {preview.commit.state === "COMMITTED" && approval ? (
+          <div className="matching-preview-modal__approval">
+            <div className="matching-preview-modal__approval-copy">
+              <span
+                className={`ati-badge ${
+                  approval.state === "APPROVED"
+                    ? "ati-badge--success"
+                    : approval.state === "PENDING" ||
+                        approval.state === "REQUIRED"
+                      ? "ati-badge--warning"
+                      : approval.state === "REJECTED"
+                        ? "ati-badge--danger"
+                        : ""
+                }`}
+              >
+                {approvalLabel(approval.state)}
+              </span>
+              <div>
+                <strong>Notification approval</strong>
+                <span>
+                  {approvalSummary(approval)}
+                </span>
+              </div>
+            </div>
+
+            {approvalNotice ? (
+              <span className="matching-preview-modal__commit-notice">
+                {approvalNotice}
+              </span>
+            ) : null}
+
+            {approval.state === "REQUIRED" && canCommit ? (
+              <button
+                className="ati-btn ati-btn--secondary"
+                disabled={approvalBusy}
+                onClick={onRequestApproval}
+                type="button"
+              >
+                {approvalBusy ? "Requesting…" : "Request approval"}
+              </button>
+            ) : null}
+
+            {approval.state === "PENDING" ? (
+              <div className="matching-preview-modal__approval-actions">
+                {approval.makerCheckerBlocked ? (
+                  <span>
+                    Maker-checker requires another approver.
+                  </span>
+                ) : canApprove ? (
+                  <>
+                    <input
+                      aria-label="Approval decision note"
+                      maxLength={1000}
+                      onChange={(event) => onDecisionNote(event.target.value)}
+                      placeholder="Decision note; required for rejection"
+                      type="text"
+                      value={decisionNote}
+                    />
+                    <button
+                      className="ati-btn"
+                      disabled={approvalBusy}
+                      onClick={() => onDecideApproval("APPROVE")}
+                      type="button"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="ati-btn ati-btn--secondary"
+                      disabled={approvalBusy}
+                      onClick={() => onDecideApproval("REJECT")}
+                      type="button"
+                    >
+                      Reject
+                    </button>
+                  </>
+                ) : (
+                  <span>Waiting for an authorized approver.</span>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body,
@@ -607,5 +873,50 @@ function NotificationPagination({ pagination, loading, goToPage }: { pagination:
 }
 
 function NotificationSkeleton() { return <div className="notification-skeleton-list">{Array.from({ length: 5 }, (_, index) => <div className="notification-skeleton" key={index}><span /><span /></div>)}</div>; }
+function approvalListLabel(
+  state: Occurrence["approvalState"],
+) {
+  if (state === "NOT_REQUIRED") return "No approval";
+  if (state === "REQUIRED") return "Approval required";
+  if (state === "PENDING") return "Approval pending";
+  if (state === "APPROVED") return "Approved";
+  if (state === "REJECTED") return "Rejected";
+  return "Not committed";
+}
+
+function approvalListClassName(
+  state: Occurrence["approvalState"],
+) {
+  return `notification-occurrence-approval notification-occurrence-approval--${state.toLowerCase().replaceAll("_", "-")}`;
+}
+
+function approvalLabel(state: ApprovalView["state"]) {
+  if (state === "NOT_REQUIRED") return "Approval not required";
+  if (state === "REQUIRED") return "Approval required";
+  if (state === "PENDING") return "Approval pending";
+  if (state === "APPROVED") return "Approved";
+  if (state === "REJECTED") return "Rejected";
+  return "Not committed";
+}
+
+function approvalSummary(approval: ApprovalView) {
+  if (approval.state === "NOT_REQUIRED") {
+    return "No committed jobs require maker-checker approval.";
+  }
+  if (approval.state === "REQUIRED") {
+    return `${approval.counts.waitingApproval} committed job(s) require an approval request.`;
+  }
+  if (approval.state === "PENDING") {
+    return `${approval.counts.waitingApproval} job(s) are frozen while the approval request is pending.`;
+  }
+  if (approval.state === "APPROVED") {
+    return `Approved. ${approval.counts.planned} job(s) are PLANNED and will become DUE on schedule.`;
+  }
+  if (approval.state === "REJECTED") {
+    return `Rejected. ${approval.counts.cancelled} job(s) are CANCELLED.`;
+  }
+  return "Commit a notification plan before approval.";
+}
+
 function humanize(value: string) { return value.toLowerCase().replaceAll("_", " ").replace(/^\w/, (letter) => letter.toUpperCase()); }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "Notification planning request failed."; }

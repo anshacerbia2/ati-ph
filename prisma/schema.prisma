@@ -121,7 +121,18 @@ enum NotificationJobStatus {
   WAITING_APPROVAL
   PLANNED
   DUE
+  PROCESSING
+  SENT
+  FAILED
   CANCELLED
+
+  @@schema("notification")
+}
+
+enum NotificationDeliveryAttemptStatus {
+  CLAIMED
+  SENT
+  FAILED
 
   @@schema("notification")
 }
@@ -677,6 +688,10 @@ model NotificationJob {
   automaticSendAllowed                Boolean                            @default(false)
   retryCeiling                        Int?
   dueAt                               DateTime?                          @db.Timestamptz(3)
+  attemptCount                        Int                                @default(0)
+  sentAt                              DateTime?                          @db.Timestamptz(3)
+  failedAt                            DateTime?                          @db.Timestamptz(3)
+  lastError                           String?                            @db.Text
   committedById                       String                             @db.Uuid
   createdAt                           DateTime                           @default(now()) @db.Timestamptz(3)
   updatedAt                           DateTime                           @updatedAt @db.Timestamptz(3)
@@ -685,6 +700,7 @@ model NotificationJob {
   notificationPolicyVersion           NotificationPolicyVersion          @relation(fields: [notificationPolicyVersionId], references: [id], onDelete: Restrict, map: "notification_jobs_policy_version_fkey")
   notificationSchedulePolicyVersion   NotificationSchedulePolicyVersion? @relation(fields: [notificationSchedulePolicyVersionId], references: [id], onDelete: Restrict, map: "notification_jobs_schedule_version_fkey")
   committedBy                         User                               @relation("NotificationJobCommitter", fields: [committedById], references: [id], onDelete: Restrict, map: "notification_jobs_committed_by_fkey")
+  deliveryAttempts                    NotificationDeliveryAttempt[]
 
   @@index([status, scheduledAt], map: "notification_jobs_status_scheduled_at_idx")
   @@index([holidayOccurrenceId, createdAt], map: "notification_jobs_occurrence_created_at_idx")
@@ -692,6 +708,27 @@ model NotificationJob {
   @@index([notificationPolicyVersionId], map: "notification_jobs_policy_version_idx")
   @@index([notificationSchedulePolicyVersionId], map: "notification_jobs_schedule_version_idx")
   @@map("notification_jobs")
+  @@schema("notification")
+}
+
+model NotificationDeliveryAttempt {
+  id                String                            @id @default(uuid()) @db.Uuid
+  notificationJobId String                            @db.Uuid
+  attemptNumber     Int
+  status            NotificationDeliveryAttemptStatus
+  claimedAt         DateTime                          @db.Timestamptz(3)
+  leaseExpiresAt    DateTime                          @db.Timestamptz(3)
+  completedAt       DateTime?                         @db.Timestamptz(3)
+  provider          String?                           @db.VarChar(100)
+  providerMessageId String?                           @db.VarChar(500)
+  errorCode         String?                           @db.VarChar(120)
+  errorMessage      String?                           @db.Text
+  createdAt         DateTime                          @default(now()) @db.Timestamptz(3)
+  notificationJob   NotificationJob                   @relation(fields: [notificationJobId], references: [id], onDelete: Restrict, map: "notification_delivery_attempts_job_fkey")
+
+  @@unique([notificationJobId, attemptNumber], map: "notification_delivery_attempts_job_attempt_key")
+  @@index([status, leaseExpiresAt], map: "notification_delivery_attempts_status_lease_idx")
+  @@map("notification_delivery_attempts")
   @@schema("notification")
 }
 

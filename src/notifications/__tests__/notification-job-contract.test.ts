@@ -71,7 +71,7 @@ describe("notification job scheduler foundation", () => {
     expect(worker).not.toContain("smtp");
     expect(worker).not.toContain("sendMail");
     expect(planningPage).toContain(
-      "email delivery is not implemented yet",
+      "no provider or email sender is wired yet",
     );
   });
 

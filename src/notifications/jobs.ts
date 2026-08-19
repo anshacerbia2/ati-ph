@@ -4,15 +4,18 @@ import { createHash } from "node:crypto";
 
 import { db } from "@/lib/db";
 import {
-  buildOccurrenceNotificationPlan,
-} from "@/notifications/plan-engine";
-import {
   initialNotificationJobStatus,
 } from "@/notifications/job-rules";
+import {
+  createNotificationPlanApprovalRequest,
+} from "@/notifications/notification-approval";
 import {
   NotificationTimeError,
   zonedLocalDateTimeToUtc,
 } from "@/notifications/notification-time";
+import {
+  buildOccurrenceNotificationPlan,
+} from "@/notifications/plan-engine";
 
 export class NotificationJobError extends Error {
   constructor(
@@ -57,10 +60,11 @@ export async function commitOccurrenceNotificationPlan(
       );
     }
 
-    const plan = await buildOccurrenceNotificationPlan(
-      tx,
-      occurrenceId,
-    );
+    const plan =
+      await buildOccurrenceNotificationPlan(
+        tx,
+        occurrenceId,
+      );
 
     if (plan.commit.state === "COMMITTED") {
       throw new NotificationJobError(
@@ -87,9 +91,11 @@ export async function commitOccurrenceNotificationPlan(
     let waitingApprovalCount = 0;
 
     for (const result of matched) {
-      const candidate = result.schedule?.candidates[0];
+      const candidate =
+        result.schedule?.candidates[0];
       const policy = result.policy;
-      const resolution = result.scheduleResolution;
+      const resolution =
+        result.scheduleResolution;
 
       if (
         !candidate ||
@@ -109,12 +115,16 @@ export async function commitOccurrenceNotificationPlan(
 
       try {
         scheduledAt = zonedLocalDateTimeToUtc({
-          localDate: candidate.plannedLocalDate,
-          localTime: candidate.plannedLocalTime,
+          localDate:
+            candidate.plannedLocalDate,
+          localTime:
+            candidate.plannedLocalTime,
           timezone: candidate.timezone,
         });
       } catch (error) {
-        if (error instanceof NotificationTimeError) {
+        if (
+          error instanceof NotificationTimeError
+        ) {
           throw new NotificationJobError(
             "PLAN_TIME_CONVERSION_FAILED",
             `${result.clientName}: ${error.message}`,
@@ -124,9 +134,10 @@ export async function commitOccurrenceNotificationPlan(
         throw error;
       }
 
-      const status = initialNotificationJobStatus(
-        candidate.approvalRequired,
-      );
+      const status =
+        initialNotificationJobStatus(
+          candidate.approvalRequired,
+        );
 
       if (status === "PLANNED") {
         plannedCount += 1;
@@ -134,7 +145,9 @@ export async function commitOccurrenceNotificationPlan(
         waitingApprovalCount += 1;
       }
 
-      const idempotencyKey = createHash("sha256")
+      const idempotencyKey = createHash(
+        "sha256",
+      )
         .update(
           [
             occurrenceId,
@@ -150,34 +163,42 @@ export async function commitOccurrenceNotificationPlan(
         data: {
           idempotencyKey,
           holidayOccurrenceId: occurrenceId,
-          clientSubscriptionId: result.subscriptionId,
-          notificationPolicyVersionId: policy.versionId,
+          clientSubscriptionId:
+            result.subscriptionId,
+          notificationPolicyVersionId:
+            policy.versionId,
           notificationSchedulePolicyVersionId:
             resolution.source === "GLOBAL"
               ? resolution.sourceVersionId
               : null,
           scheduleSource: resolution.source,
           scheduleSourceVersion:
-            resolution.sourceVersion ?? policy.version,
+            resolution.sourceVersion ??
+            policy.version,
           targetHolidayDate: databaseDate(
             candidate.targetHolidayDate,
           ),
           plannedLocalDate: databaseDate(
             candidate.plannedLocalDate,
           ),
-          plannedLocalTime: candidate.plannedLocalTime,
+          plannedLocalTime:
+            candidate.plannedLocalTime,
           timezone: candidate.timezone,
           scheduledAt,
-          approvalMode: candidate.approvalMode,
+          approvalMode:
+            candidate.approvalMode,
           status,
           recipientSnapshot: {
             to: result.to,
             cc: result.cc,
           },
           ruleSnapshot: {
-            holidayName: plan.occurrence.holidayName,
-            calendarRegion: result.calendarRegion,
-            scheduleSource: resolution.source,
+            holidayName:
+              plan.occurrence.holidayName,
+            calendarRegion:
+              result.calendarRegion,
+            scheduleSource:
+              resolution.source,
             scheduleSourceVersion:
               resolution.sourceVersion,
             targetHolidayDate:
@@ -187,50 +208,75 @@ export async function commitOccurrenceNotificationPlan(
             plannedLocalTime:
               candidate.plannedLocalTime,
             timezone: candidate.timezone,
-            leadTimeValue: candidate.leadTimeValue,
-            leadTimeMode: candidate.leadTimeMode,
+            leadTimeValue:
+              candidate.leadTimeValue,
+            leadTimeMode:
+              candidate.leadTimeMode,
             weekendAdjustment:
               candidate.weekendAdjustment,
             businessDayHolidayMode:
               candidate.businessDayHolidayMode,
-            approvalMode: candidate.approvalMode,
-            appliedRules: candidate.appliedRules,
+            approvalMode:
+              candidate.approvalMode,
+            appliedRules:
+              candidate.appliedRules,
           },
           automaticSendAllowed:
             policy.automaticSendAllowed,
-          retryCeiling: policy.retryCeiling,
+          retryCeiling:
+            policy.retryCeiling,
           committedById: actorId,
         },
       });
     }
 
+    const approval =
+      waitingApprovalCount > 0
+        ? await createNotificationPlanApprovalRequest(
+            tx,
+            occurrenceId,
+            actorId,
+          )
+        : null;
+
     await tx.holidayOccurrence.update({
       where: { id: occurrenceId },
-      data: { notificationCommittedAt: now },
+      data: {
+        notificationCommittedAt: now,
+      },
     });
 
     await tx.auditEvent.create({
       data: {
         userId: actorId,
-        action: "NOTIFICATION_PLAN_COMMITTED",
+        action:
+          "NOTIFICATION_PLAN_COMMITTED",
         entityType: "HolidayOccurrence",
         entityId: occurrenceId,
         metadata: {
           jobCount: matched.length,
           plannedCount,
           waitingApprovalCount,
-          deliveryEnabledJobCount: matched.filter(
-            (result) =>
-              result.policy?.automaticSendAllowed === true,
-          ).length,
+          approvalRequestId:
+            approval?.approvalRequestId ??
+            null,
+          deliveryEnabledJobCount:
+            matched.filter(
+              (result) =>
+                result.policy
+                  ?.automaticSendAllowed ===
+                true,
+            ).length,
         },
       },
     });
 
     await tx.outboxEvent.create({
       data: {
-        topic: "notification.plan.committed",
-        aggregateType: "HolidayOccurrence",
+        topic:
+          "notification.plan.committed",
+        aggregateType:
+          "HolidayOccurrence",
         aggregateId: occurrenceId,
         payload: {
           occurrenceId,
@@ -238,6 +284,9 @@ export async function commitOccurrenceNotificationPlan(
           jobCount: matched.length,
           plannedCount,
           waitingApprovalCount,
+          approvalRequestId:
+            approval?.approvalRequestId ??
+            null,
         },
       },
     });
@@ -248,6 +297,8 @@ export async function commitOccurrenceNotificationPlan(
       jobCount: matched.length,
       plannedCount,
       waitingApprovalCount,
+      approvalRequestId:
+        approval?.approvalRequestId ?? null,
       deliveryMode: "DISABLED" as const,
     };
   });

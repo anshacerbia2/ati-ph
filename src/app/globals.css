@@ -3441,3 +3441,103 @@ tbody tr:hover { background: var(--ati-gray-50); }
   }
 }
 /* END notification-job-scheduler-foundation */
+
+
+/* BEGIN notification-approval-delivery-contract */
+.matching-preview-modal__approval{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  padding:.75rem 1rem;
+  border-top:1px solid var(--border-subtle);
+  background:color-mix(in srgb,var(--ati-gray-50) 65%,var(--ati-white));
+}
+.matching-preview-modal__approval-copy{
+  display:flex;
+  align-items:center;
+  min-width:0;
+  flex:1;
+  gap:.65rem;
+}
+.matching-preview-modal__approval-copy>div{
+  display:grid;
+  min-width:0;
+  gap:.1rem;
+}
+.matching-preview-modal__approval-copy strong{
+  color:var(--text-strong);
+  font-size:var(--fs-micro);
+}
+.matching-preview-modal__approval-copy div>span{
+  color:var(--text-muted);
+  font-size:.68rem;
+  line-height:1.4;
+}
+.matching-preview-modal__approval-actions{
+  display:flex;
+  align-items:center;
+  gap:.45rem;
+}
+.matching-preview-modal__approval-actions>span{
+  color:var(--text-muted);
+  font-size:.68rem;
+  font-weight:700;
+}
+.matching-preview-modal__approval-actions input{
+  width:min(20rem,34vw);
+  min-height:2.2rem;
+  border:1px solid var(--border-subtle);
+  border-radius:.5rem;
+  background:var(--ati-white);
+  color:var(--text-strong);
+  padding:.45rem .65rem;
+  font:inherit;
+  font-size:.72rem;
+}
+@media(max-width:760px){
+  .matching-preview-modal__approval,
+  .matching-preview-modal__approval-actions{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .matching-preview-modal__approval-copy{
+    align-items:flex-start;
+  }
+  .matching-preview-modal__approval-actions input{
+    width:100%;
+  }
+}
+/* END notification-approval-delivery-contract */
+
+
+/* BEGIN notification-approval-list-state */
+.notification-occurrence-approval{
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  padding:.18rem .48rem;
+  font-size:.65rem;
+  font-weight:800;
+  line-height:1.2;
+  white-space:nowrap;
+}
+.notification-occurrence-approval--not-required{
+  background:var(--ati-gray-50);
+  color:var(--text-muted);
+}
+.notification-occurrence-approval--required,
+.notification-occurrence-approval--pending{
+  border-color:color-mix(in srgb,var(--ati-warning) 40%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-warning) 12%,var(--ati-white));
+  color:var(--ati-warning);
+}
+.notification-occurrence-approval--approved{
+  border-color:color-mix(in srgb,var(--ati-success) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-success) 12%,var(--ati-white));
+  color:var(--ati-success);
+}
+.notification-occurrence-approval--rejected{
+  border-color:color-mix(in srgb,var(--ati-danger) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-danger) 10%,var(--ati-white));
+  color:var(--ati-danger);
+}
+/* END notification-approval-list-state */

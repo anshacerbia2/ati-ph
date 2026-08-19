@@ -4,6 +4,9 @@ import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import {
+  notificationApprovalListState,
+} from "@/notifications/approval-list-state";
+import {
   buildOccurrenceNotificationPlan,
   NotificationPlanningError,
 } from "@/notifications/plan-engine";
@@ -68,6 +71,69 @@ export async function listPublishedOccurrences(
     take: query.pageSize,
   });
 
+  const occurrenceIds = occurrences.map(
+    (occurrence) => occurrence.id,
+  );
+
+  const [approvalRows, jobStatusRows] =
+    occurrenceIds.length > 0
+      ? await Promise.all([
+          db.approvalRequest.findMany({
+            where: {
+              resourceType: "NotificationPlan",
+              resourceId: { in: occurrenceIds },
+            },
+            orderBy: [
+              { requestedAt: "desc" },
+              { id: "desc" },
+            ],
+            select: {
+              resourceId: true,
+              status: true,
+            },
+          }),
+          db.notificationJob.groupBy({
+            by: ["holidayOccurrenceId", "status"],
+            where: {
+              holidayOccurrenceId: {
+                in: occurrenceIds,
+              },
+            },
+            _count: { _all: true },
+          }),
+        ])
+      : [[], []];
+
+  const latestApprovalByOccurrence = new Map<
+    string,
+    (typeof approvalRows)[number]["status"]
+  >();
+
+  for (const approval of approvalRows) {
+    if (
+      !latestApprovalByOccurrence.has(
+        approval.resourceId,
+      )
+    ) {
+      latestApprovalByOccurrence.set(
+        approval.resourceId,
+        approval.status,
+      );
+    }
+  }
+
+  const waitingApprovalByOccurrence =
+    new Map<string, number>();
+
+  for (const row of jobStatusRows) {
+    if (row.status === "WAITING_APPROVAL") {
+      waitingApprovalByOccurrence.set(
+        row.holidayOccurrenceId,
+        row._count._all,
+      );
+    }
+  }
+
   return {
     occurrences: occurrences.map((occurrence) => ({
       id: occurrence.id,
@@ -78,6 +144,19 @@ export async function listPublishedOccurrences(
       publishedAt: occurrence.publishedAt,
       notificationCommittedAt:
         occurrence.notificationCommittedAt,
+      approvalState: notificationApprovalListState({
+        committed: Boolean(
+          occurrence.notificationCommittedAt,
+        ),
+        latestApprovalStatus:
+          latestApprovalByOccurrence.get(
+            occurrence.id,
+          ) ?? null,
+        waitingApprovalCount:
+          waitingApprovalByOccurrence.get(
+            occurrence.id,
+          ) ?? 0,
+      }),
       regions: occurrence.regions
         .map((item) => item.calendarRegion)
         .sort((left, right) =>
