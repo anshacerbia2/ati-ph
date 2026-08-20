@@ -53,6 +53,7 @@ Implemented boundaries now include:
 - manual same-domain SMTP connectivity test behind explicit gates
 - controlled same-domain NotificationJob SMTP business-content pilot
 - real SMTP inbox validation of frozen governed content
+- provider-neutral recipient acceptance classification and durable accepted/rejected evidence
 
 Current safety boundary:
 

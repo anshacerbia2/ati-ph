@@ -435,6 +435,29 @@ ATI IT owns:
 
 The repository must not guess these controls.
 
+## 6.1 SMTP recipient outcome safety
+
+The delivery contract evaluates the complete requested recipient set before an SMTP attempt may become SENT.
+
+```text
+all requested recipients accepted
+→ SENT
+
+all requested recipients explicitly rejected
+→ RETRYABLE
+→ bounded by retryCeiling
+
+partial acceptance or incomplete recipient evidence
+→ OUTCOME_UNKNOWN
+→ no automatic retry
+
+generic SMTP send exception after the external send attempt begins
+→ OUTCOME_UNKNOWN
+→ no automatic retry
+```
+
+Provider-reported accepted and rejected recipient arrays are persisted on the delivery attempt. The SMTP executor remains intentionally disconnected from the worker.
+
 ## 7. Production safety state
 
 Production remains fail-closed:

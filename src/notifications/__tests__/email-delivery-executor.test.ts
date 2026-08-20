@@ -135,6 +135,10 @@ describe("notification STREAM delivery executor", () => {
         outcome: {
           status: "SENT",
           provider: "SAFE_STREAM",
+          acceptedRecipients: [
+            "runtime@dummy.test",
+          ],
+          rejectedRecipients: [],
         },
       },
     );

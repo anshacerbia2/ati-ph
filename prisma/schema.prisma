@@ -734,6 +734,8 @@ model NotificationDeliveryAttempt {
   completedAt       DateTime?                         @db.Timestamptz(3)
   provider          String?                           @db.VarChar(100)
   providerMessageId String?                           @db.VarChar(500)
+  acceptedRecipients Json?
+  rejectedRecipients Json?
   failureClass      NotificationDeliveryFailureClass?
   leaseRetrySafe    Boolean                           @default(false)
   errorCode         String?                           @db.VarChar(120)

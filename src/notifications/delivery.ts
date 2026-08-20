@@ -393,6 +393,8 @@ export async function completeNotificationDeliveryAttempt(
           status: "SENT";
           provider: string;
           providerMessageId?: string | null;
+          acceptedRecipients?: string[];
+          rejectedRecipients?: string[];
         }
       | {
           status: "FAILED";
@@ -401,6 +403,8 @@ export async function completeNotificationDeliveryAttempt(
             NotificationDeliveryFailureClass;
           errorCode?: string | null;
           errorMessage: string;
+          acceptedRecipients?: string[];
+          rejectedRecipients?: string[];
         };
   },
 ) {
@@ -495,6 +499,8 @@ export async function completeNotificationDeliveryAttempt(
           providerMessageId:
             input.outcome.providerMessageId?.trim() ||
             null,
+          acceptedRecipients: normalizeRecipientEvidence(input.outcome.acceptedRecipients),
+          rejectedRecipients: normalizeRecipientEvidence(input.outcome.rejectedRecipients),
           failureClass: null,
           errorCode: null,
           errorMessage: null,
@@ -574,6 +580,8 @@ export async function completeNotificationDeliveryAttempt(
         null,
       errorMessage:
         input.outcome.errorMessage.trim(),
+      acceptedRecipients: input.outcome.acceptedRecipients,
+      rejectedRecipients: input.outcome.rejectedRecipients,
     });
   });
 }
@@ -608,6 +616,8 @@ async function failClaimedAttempt(
       NotificationDeliveryFailureClass;
     errorCode: string | null;
     errorMessage: string;
+    acceptedRecipients?: string[];
+    rejectedRecipients?: string[];
   },
 ): Promise<{
   attemptId: string;
@@ -635,6 +645,8 @@ async function failClaimedAttempt(
       failureClass: input.failureClass,
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
+      acceptedRecipients: normalizeRecipientEvidence(input.acceptedRecipients),
+      rejectedRecipients: normalizeRecipientEvidence(input.rejectedRecipients),
     },
   });
 
@@ -788,6 +800,10 @@ async function failClaimedAttempt(
     status: "FAILED",
     retryAt: null,
   };
+}
+
+function normalizeRecipientEvidence(values: string[] | undefined): Prisma.InputJsonValue {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean).map((value) => value.length > 1000 ? value.slice(0, 1000) : value))];
 }
 
 function validateBatchSize(batchSize: number) {

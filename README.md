@@ -50,6 +50,8 @@ Implemented through 2026-08-20:
 - Approval hash includes the exact frozen delivery content
 - Explicit gated manual SMTP connectivity test
 - Controlled same-domain NotificationJob SMTP business-content pilot using frozen job content without durable job mutation
+- Provider-neutral recipient acceptance classification with fail-closed partial/incomplete SMTP outcomes
+- Durable accepted/rejected recipient evidence on `NotificationDeliveryAttempt`
 
 Not enabled yet:
 
@@ -142,10 +144,10 @@ npm run worker
 Open:
 
 ```text
-http://localhost:3000/apps/ph-notification/app
+http://localhost:3005/apps/ph-notification/app
 ```
 
-In development only, opening `http://localhost:3000/` redirects to the mounted path.
+In development only, opening `http://localhost:3005/` redirects to the mounted path.
 
 ## Worker responsibility
 
@@ -476,6 +478,29 @@ Do not use a normal Google login password.
 Do not paste SMTP credentials into issues, docs, commits, chat logs, or screenshots.
 
 See `docs/LOCAL-EMAIL-TESTING.md` for the complete runbook.
+
+## SMTP recipient outcome safety
+
+```text
+all requested recipients accepted
+→ SENT
+
+all requested recipients explicitly rejected
+→ RETRYABLE failure
+→ bounded by retryCeiling
+
+partial acceptance or incomplete recipient evidence
+→ OUTCOME_UNKNOWN
+→ no automatic retry
+
+generic SMTP send throws after the external send attempt begins
+→ OUTCOME_UNKNOWN
+→ no automatic retry
+```
+
+Provider-reported accepted and rejected recipient arrays are persisted on `NotificationDeliveryAttempt`.
+
+The SMTP executor implementing these semantics is tested but remains intentionally disconnected from `src/worker/main.ts`.
 
 ## Production email direction
 

@@ -205,6 +205,7 @@ Keycloak currently proves user identity. The application resolves its own roles 
 | Email Delivery Engine | Provider-neutral engine, STREAM, generic SMTP, deterministic Message-ID, transport result | Implemented |
 | SMTP Connectivity Test | Explicit same-domain technical test with no database access | Implemented and verified |
 | NotificationJob SMTP Pilot | Frozen business-content SMTP send to same-domain internal recipient with no durable job mutation | Implemented and inbox-verified |
+| Recipient Outcome Safety | Full acceptance, retry-safe full rejection, partial acceptance, incomplete evidence, and unknown-outcome retry blocking | Implemented foundation |
 | Automatic SMTP NotificationJob Execution | Worker claim and production/client-recipient send | Gated |
 | Bounce/NDR Reconciliation | Provider delivery-event correlation | Future / provider dependent |
 | Shared Email Delivery Platform | Extraction for multiple consumers | Not justified until a second production consumer |

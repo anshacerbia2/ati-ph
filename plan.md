@@ -82,6 +82,9 @@ Gated manual SMTP connectivity test
 
 Controlled same-domain NotificationJob SMTP business-content pilot
 → implemented and provider/inbox verified
+
+SMTP recipient outcome classification + durable accepted/rejected evidence
+→ implemented; automatic SMTP worker remains gated
 ```
 
 The controlled business-content pilot used an existing frozen `PLANNED` NotificationJob, verified its content SHA-256, preserved its subject/body, replaced its frozen client recipients with one same-domain internal ATI recipient, and sent through the real SMTP adapter without claiming or mutating the durable job.
@@ -91,7 +94,7 @@ Open production gates:
 - ATI IT-approved production SMTP relay/credential path
 - controlled production/client-recipient SMTP pilot scope and authorization
 - automatic SMTP NotificationJob execution by the worker
-- partial SMTP acceptance handling review
+- operational/manual reconciliation workflow for partial/incomplete SMTP outcomes
 - unknown-outcome operational remediation
 - bounce/NDR ingestion where required
 - production monitoring/runbook

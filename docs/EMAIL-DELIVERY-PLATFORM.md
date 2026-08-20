@@ -45,6 +45,8 @@ Implemented:
 - approval hash over the exact frozen delivery content
 - explicit gated manual SMTP connectivity test
 - controlled same-domain NotificationJob SMTP business-content pilot with no durable job mutation
+- provider-neutral full/partial/rejected/incomplete recipient acceptance classification
+- durable accepted/rejected recipient evidence on `NotificationDeliveryAttempt`
 
 Still gated or future:
 
@@ -447,7 +449,7 @@ Still required:
 - ATI IT-approved production sender/relay route
 - approved production secret-management path
 - controlled production/client-recipient pilot scope and authorization
-- partial SMTP acceptance policy
+- operational/manual reconciliation path for partial or incomplete SMTP recipient outcomes
 - outcome-unknown remediation path
 - Operations content approval for production use
 - attachment contract confirmed if required
