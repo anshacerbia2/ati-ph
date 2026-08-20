@@ -7,6 +7,7 @@ import { AccessDenied } from "@/components/app-shell/AccessDenied";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { DeliveryOperations } from "@/components/ph-dashboard/DeliveryOperations";
 import { NotificationPlanning } from "@/components/ph-dashboard/NotificationPlanning";
+import { TrustedAutomationOperations } from "@/components/ph-dashboard/TrustedAutomationOperations";
 
 export default async function NotificationPlanningPage() {
   const session = await getCurrentSession();
@@ -41,6 +42,7 @@ export default async function NotificationPlanningPage() {
           PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
         )}
       />
+      <TrustedAutomationOperations />
       <DeliveryOperations
         canReconcile={permissions.has(
           PERMISSIONS.NOTIFICATION_PLAN_APPROVE,

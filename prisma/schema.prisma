@@ -154,6 +154,29 @@ enum NotificationDeliveryReconciliationAction {
   @@schema("notification")
 }
 
+enum NotificationOperationalAlertType {
+  PLANNING_BLOCKED
+  ZERO_RECIPIENT
+  SCHEDULER_LAG
+  DELIVERY_FAILURE
+
+  @@schema("notification")
+}
+
+enum NotificationOperationalAlertSeverity {
+  WARNING
+  CRITICAL
+
+  @@schema("notification")
+}
+
+enum NotificationOperationalAlertStatus {
+  OPEN
+  RESOLVED
+
+  @@schema("notification")
+}
+
 model User {
   id                        String                  @id @default(uuid()) @db.Uuid
   externalSubject           String                  @unique @db.VarChar(191)
@@ -761,6 +784,51 @@ model NotificationDeliveryAttempt {
   @@index([status, leaseExpiresAt], map: "notification_delivery_attempts_status_lease_idx")
   @@index([failureClass, reconciliationAction, completedAt], map: "notification_delivery_attempts_reconciliation_idx")
   @@map("notification_delivery_attempts")
+  @@schema("notification")
+}
+
+model NotificationOperationalAlert {
+  id                  String                               @id @default(uuid()) @db.Uuid
+  alertKey            String                               @unique(map: "notification_operational_alerts_alert_key_key") @db.VarChar(191)
+  type                NotificationOperationalAlertType
+  severity            NotificationOperationalAlertSeverity
+  status              NotificationOperationalAlertStatus   @default(OPEN)
+  holidayOccurrenceId String?                              @db.Uuid
+  notificationJobId   String?                              @db.Uuid
+  summary             String                               @db.VarChar(500)
+  details             Json?
+  firstDetectedAt     DateTime                             @default(now()) @db.Timestamptz(3)
+  lastDetectedAt      DateTime                             @default(now()) @db.Timestamptz(3)
+  resolvedAt          DateTime?                            @db.Timestamptz(3)
+  createdAt           DateTime                             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime                             @updatedAt @db.Timestamptz(3)
+
+  @@index([status, severity, lastDetectedAt], map: "notification_operational_alerts_status_severity_idx")
+  @@index([type, status, lastDetectedAt], map: "notification_operational_alerts_type_status_idx")
+  @@index([holidayOccurrenceId, status], map: "notification_operational_alerts_occurrence_status_idx")
+  @@index([notificationJobId, status], map: "notification_operational_alerts_job_status_idx")
+  @@map("notification_operational_alerts")
+  @@schema("notification")
+}
+
+model NotificationWorkerState {
+  id                       String   @id @db.VarChar(40)
+  trustedAutomationEnabled Boolean  @default(false)
+  lastCycleStartedAt       DateTime? @db.Timestamptz(3)
+  lastCycleCompletedAt     DateTime? @db.Timestamptz(3)
+  lastSuccessfulAt         DateTime? @db.Timestamptz(3)
+  lastError                String?  @db.Text
+  lastPlanningScanned      Int      @default(0)
+  lastPlanningReady        Int      @default(0)
+  lastPlanningCommitted    Int      @default(0)
+  lastPlanningBlocked      Int      @default(0)
+  lastDuePromoted          Int      @default(0)
+  lastDeliveryClaims       Int      @default(0)
+  lastOpenAlertCount       Int      @default(0)
+  createdAt                DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("notification_worker_state")
   @@schema("notification")
 }
 

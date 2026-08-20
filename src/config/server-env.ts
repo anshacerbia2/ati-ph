@@ -44,6 +44,42 @@ const serverEnvSchema = z.object({
     .min(30)
     .max(3600)
     .default(120),
+  NOTIFICATION_TRUSTED_AUTOMATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false"),
+  NOTIFICATION_AUTOMATION_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(50),
+  NOTIFICATION_AUTOMATION_HORIZON_DAYS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(730)
+    .default(400),
+  NOTIFICATION_SCHEDULER_LAG_THRESHOLD_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(86_400)
+    .default(300),
+  NOTIFICATION_RETENTION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false"),
+  NOTIFICATION_OPERATIONAL_ALERT_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3650)
+    .default(90),
+  NOTIFICATION_RETENTION_BATCH_SIZE: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1000)
+    .default(100),
   EMAIL_DELIVERY_MODE: z.enum(["DISABLED", "STREAM", "SMTP"]).default("DISABLED"),
   EMAIL_SENDER_IDENTITY_CODE: z.string().min(1).default("PH_NOTIFICATION"),
   EMAIL_FROM_ADDRESS: z.email().optional(),

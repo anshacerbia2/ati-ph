@@ -25,6 +25,7 @@ type ReconciliationItem = {
     name: string;
     startDate: string;
     endDate: string;
+    supersededAt: string | null;
   };
   client: {
     name: string;
@@ -219,6 +220,12 @@ export function DeliveryOperations({
                     ? ` · ${item.errorMessage}`
                     : ""}
                 </span>
+                {item.holiday.supersededAt ? (
+                  <span>
+                    Holiday corrected · retry is blocked for this superseded
+                    occurrence
+                  </span>
+                ) : null}
               </div>
 
               {canReconcile ? (
@@ -249,7 +256,10 @@ export function DeliveryOperations({
                   </button>
                   <button
                     className="ati-btn ati-btn--secondary"
-                    disabled={busyAttemptId === item.attemptId}
+                    disabled={
+                      busyAttemptId === item.attemptId ||
+                      Boolean(item.holiday.supersededAt)
+                    }
                     onClick={() =>
                       void reconcile(item.attemptId, "RETRY")
                     }

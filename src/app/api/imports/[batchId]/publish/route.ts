@@ -12,6 +12,7 @@ import {
 } from "@/holiday/publication";
 import {
   collectRevisionTargetIds,
+  revisionDeliveryBoundary,
   validateRevisionTargets,
 } from "@/holiday/revision";
 import type { NormalizedHolidayRow } from "@/imports/contracts";
@@ -49,6 +50,29 @@ async function lockRevisionTargets(
       FROM "holiday"."holiday_occurrences"
       WHERE "id" IN (${Prisma.join(ids)})
       ORDER BY "id"
+      FOR UPDATE
+    `,
+  );
+}
+
+async function lockRevisionNotificationJobs(
+  transaction: Prisma.TransactionClient,
+  targetIds: readonly string[],
+): Promise<void> {
+  if (targetIds.length === 0) {
+    return;
+  }
+
+  const ids = targetIds.map(
+    (id) => Prisma.sql`${id}::uuid`,
+  );
+
+  await transaction.$queryRaw(
+    Prisma.sql`
+      SELECT job."id"
+      FROM "notification"."notification_jobs" AS job
+      WHERE job."holidayOccurrenceId" IN (${Prisma.join(ids)})
+      ORDER BY job."id"
       FOR UPDATE
     `,
   );
@@ -252,6 +276,10 @@ export async function POST(
           transaction,
           revisionTargets.targetIds,
         );
+        await lockRevisionNotificationJobs(
+          transaction,
+          revisionTargets.targetIds,
+        );
 
         const revisionValidation =
           await validateRevisionTargets(
@@ -306,6 +334,9 @@ export async function POST(
         let regionCount = 0;
         let dateCount = 0;
         let revisionCount = 0;
+        let cancelledNotificationJobCount = 0;
+        let cancelledApprovalCount = 0;
+        let priorSentNotificationCount = 0;
         const publishedOccurrenceIds: string[] = [];
         const supersededOccurrenceIds: string[] = [];
 
@@ -345,12 +376,82 @@ export async function POST(
             row.revisionId !== row.id;
 
           if (revisesExisting) {
+            const existingJobs =
+              await transaction.notificationJob.findMany({
+                where: {
+                  holidayOccurrenceId:
+                    row.revisionId,
+                },
+                select: { status: true },
+              });
+            const deliveryBoundary =
+              revisionDeliveryBoundary(
+                existingJobs.map(
+                  (job) => job.status,
+                ),
+              );
+
+            if (!deliveryBoundary.ok) {
+              throw new PublicationError(
+                deliveryBoundary.reason,
+                409,
+              );
+            }
+
+            priorSentNotificationCount +=
+              deliveryBoundary.sentCount;
+
+            const cancelledJobs =
+              await transaction.notificationJob.updateMany({
+                where: {
+                  holidayOccurrenceId:
+                    row.revisionId,
+                  status: {
+                    in: [
+                      "WAITING_APPROVAL",
+                      "PLANNED",
+                      "DUE",
+                      "RETRY_WAIT",
+                    ],
+                  },
+                },
+                data: {
+                  status: "CANCELLED",
+                  retryAt: null,
+                  lastError:
+                    "Cancelled because a corrected holiday occurrence superseded this notification plan.",
+                },
+              });
+            cancelledNotificationJobCount +=
+              cancelledJobs.count;
+
+            const cancelledApprovals =
+              await transaction.approvalRequest.updateMany({
+                where: {
+                  resourceType:
+                    "NotificationPlan",
+                  resourceId:
+                    row.revisionId,
+                  status: "PENDING",
+                },
+                data: {
+                  status: "CANCELLED",
+                  activeResourceKey: null,
+                  decidedById:
+                    access.session.user.id,
+                  decidedAt: now,
+                  decisionReason:
+                    "Cancelled because a corrected holiday occurrence superseded the notification plan.",
+                },
+              });
+            cancelledApprovalCount +=
+              cancelledApprovals.count;
+
             const superseded =
               await transaction.holidayOccurrence.updateMany({
                 where: {
                   id: row.revisionId,
                   supersededAt: null,
-                  notificationCommittedAt: null,
                 },
                 data: {
                   supersededAt: now,
@@ -446,6 +547,9 @@ export async function POST(
               revisionCount,
               publishedOccurrenceIds,
               supersededOccurrenceIds,
+              cancelledNotificationJobCount,
+              cancelledApprovalCount,
+              priorSentNotificationCount,
             },
           },
         });
@@ -466,6 +570,9 @@ export async function POST(
               revisionCount,
               publishedOccurrenceIds,
               supersededOccurrenceIds,
+              cancelledNotificationJobCount,
+              cancelledApprovalCount,
+              priorSentNotificationCount,
               occurredAt: now.toISOString(),
             },
           },
@@ -478,6 +585,9 @@ export async function POST(
           regionCount,
           dateCount,
           revisionCount,
+          cancelledNotificationJobCount,
+          cancelledApprovalCount,
+          priorSentNotificationCount,
         };
       },
       {

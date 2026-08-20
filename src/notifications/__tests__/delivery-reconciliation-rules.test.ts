@@ -10,12 +10,15 @@ import {
 } from "@/notifications/delivery-reconciliation-rules";
 
 const base = {
-  action: "MARK_SENT" as NotificationDeliveryReconciliationAction,
+  action:
+    "MARK_SENT" as NotificationDeliveryReconciliationAction,
   attemptStatus: "FAILED" as const,
-  failureClass: "OUTCOME_UNKNOWN" as const,
+  failureClass:
+    "OUTCOME_UNKNOWN" as const,
   reconciliationAction: null,
   attemptNumber: 2,
   jobAttemptCount: 2,
+  occurrenceSuperseded: false,
   jobStatus: "FAILED" as const,
 };
 
@@ -24,48 +27,90 @@ describe("delivery reconciliation rules", () => {
     "MARK_SENT",
     "RETRY",
     "FAIL",
-  ] as const)("allows explicit %s for the latest unresolved unknown outcome", (action) => {
-    expect(
-      notificationDeliveryReconciliationEligibility({
-        ...base,
-        action,
-      }),
-    ).toEqual({ ok: true });
-  });
+  ] as const)(
+    "allows explicit %s for the latest unresolved unknown outcome",
+    (action) => {
+      expect(
+        notificationDeliveryReconciliationEligibility(
+          {
+            ...base,
+            action,
+          },
+        ),
+      ).toEqual({ ok: true });
+    },
+  );
 
   it("rejects non-unknown failures", () => {
     expect(
-      notificationDeliveryReconciliationEligibility({
-        ...base,
-        failureClass: "TERMINAL",
-      }),
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          failureClass: "TERMINAL",
+        },
+      ),
     ).toMatchObject({ ok: false });
   });
 
   it("rejects an already reconciled attempt", () => {
     expect(
-      notificationDeliveryReconciliationEligibility({
-        ...base,
-        reconciliationAction: "FAIL",
-      }),
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          reconciliationAction: "FAIL",
+        },
+      ),
     ).toMatchObject({ ok: false });
   });
 
   it("rejects stale attempts", () => {
     expect(
-      notificationDeliveryReconciliationEligibility({
-        ...base,
-        attemptNumber: 1,
-      }),
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          attemptNumber: 1,
+        },
+      ),
     ).toMatchObject({ ok: false });
   });
 
   it("rejects reconciliation after the job moved away from FAILED", () => {
     expect(
-      notificationDeliveryReconciliationEligibility({
-        ...base,
-        jobStatus: "SENT",
-      }),
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          jobStatus: "SENT",
+        },
+      ),
     ).toMatchObject({ ok: false });
+  });
+
+  it("blocks retry after the holiday was superseded", () => {
+    expect(
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          action: "RETRY",
+          occurrenceSuperseded: true,
+        },
+      ),
+    ).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining(
+        "superseded",
+      ),
+    });
+  });
+
+  it("still allows evidence-only reconciliation after supersession", () => {
+    expect(
+      notificationDeliveryReconciliationEligibility(
+        {
+          ...base,
+          action: "MARK_SENT",
+          occurrenceSuperseded: true,
+        },
+      ),
+    ).toEqual({ ok: true });
   });
 });

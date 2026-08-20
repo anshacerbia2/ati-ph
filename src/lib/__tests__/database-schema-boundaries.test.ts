@@ -29,8 +29,14 @@ const MODEL_SCHEMAS = {
   "Contact": "routing",
   "ClientSubscription": "routing",
   "SubscriptionRecipient": "routing",
+  "NotificationSchedulePolicy": "notification",
+  "NotificationSchedulePolicyVersion": "notification",
   "NotificationPolicy": "notification",
-  "NotificationPolicyVersion": "notification"
+  "NotificationPolicyVersion": "notification",
+  "NotificationJob": "notification",
+  "NotificationDeliveryAttempt": "notification",
+  "NotificationOperationalAlert": "notification",
+  "NotificationWorkerState": "notification"
 } as const;
 const ENUM_SCHEMAS = {
   "OutboxStatus": "governance",
@@ -44,7 +50,15 @@ const ENUM_SCHEMAS = {
   "NotificationLeadTimeMode": "notification",
   "NotificationWeekendAdjustment": "notification",
   "NotificationBusinessDayHolidayMode": "notification",
-  "NotificationApprovalMode": "notification"
+  "NotificationApprovalMode": "notification",
+  "NotificationScheduleSource": "notification",
+  "NotificationJobStatus": "notification",
+  "NotificationDeliveryAttemptStatus": "notification",
+  "NotificationDeliveryFailureClass": "notification",
+  "NotificationDeliveryReconciliationAction": "notification",
+  "NotificationOperationalAlertType": "notification",
+  "NotificationOperationalAlertSeverity": "notification",
+  "NotificationOperationalAlertStatus": "notification"
 } as const;
 const TABLE_SCHEMAS = {
   "users": "access",
@@ -72,8 +86,14 @@ const TABLE_SCHEMAS = {
   "contacts": "routing",
   "client_subscriptions": "routing",
   "subscription_recipients": "routing",
+  "notification_schedule_policies": "notification",
+  "notification_schedule_policy_versions": "notification",
   "notification_policies": "notification",
-  "notification_policy_versions": "notification"
+  "notification_policy_versions": "notification",
+  "notification_jobs": "notification",
+  "notification_delivery_attempts": "notification",
+  "notification_operational_alerts": "notification",
+  "notification_worker_state": "notification"
 } as const;
 
 const schemaSource = fs.readFileSync(

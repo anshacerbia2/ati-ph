@@ -16,6 +16,9 @@ import {
   resolveNotificationSchedulePolicy,
   scheduleCalendarRange,
 } from "@/notifications/schedule";
+import {
+  applyCorrectionApprovalOverride,
+} from "@/notifications/trusted-automation-rules";
 
 export class NotificationPlanningError extends Error {
   constructor(
@@ -201,7 +204,7 @@ export async function buildOccurrenceNotificationPlan(
           })
         : null;
 
-    const schedule =
+    const baseSchedule =
       scheduleResolution?.status === "RESOLVED"
         ? buildNotificationSchedulePreview({
             targetHolidayDates: result.matchingDates,
@@ -224,6 +227,14 @@ export async function buildOccurrenceNotificationPlan(
               ),
             }
           : null;
+
+    const schedule =
+      applyCorrectionApprovalOverride(
+        baseSchedule,
+        Boolean(
+          occurrence.supersedesOccurrenceId,
+        ),
+      );
 
     const effectiveScheduleIssues =
       scheduleResolution?.status === "RESOLVED"
@@ -331,6 +342,8 @@ export async function buildOccurrenceNotificationPlan(
       regions: regionCoverage,
       notificationCommittedAt:
         occurrence.notificationCommittedAt,
+      supersedesOccurrenceId:
+        occurrence.supersedesOccurrenceId,
     },
     summary,
     results,

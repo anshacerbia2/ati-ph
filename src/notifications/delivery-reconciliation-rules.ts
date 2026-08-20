@@ -16,6 +16,7 @@ export function notificationDeliveryReconciliationEligibility(input: {
     | null;
   attemptNumber: number;
   jobAttemptCount: number;
+  occurrenceSuperseded: boolean;
   jobStatus:
     | "WAITING_APPROVAL"
     | "PLANNED"
@@ -58,6 +59,17 @@ export function notificationDeliveryReconciliationEligibility(input: {
     return {
       ok: false,
       reason: "The NotificationJob is no longer waiting for reconciliation.",
+    };
+  }
+
+  if (
+    input.action === "RETRY" &&
+    input.occurrenceSuperseded
+  ) {
+    return {
+      ok: false,
+      reason:
+        "Retry is blocked because this holiday occurrence has been superseded by a correction.",
     };
   }
 

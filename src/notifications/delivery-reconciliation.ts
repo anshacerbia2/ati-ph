@@ -71,6 +71,7 @@ export async function listNotificationDeliveryReconciliationQueue(
             select: {
               startDate: true,
               endDate: true,
+              supersededAt: true,
               definition: {
                 select: {
                   canonicalName: true,
@@ -124,6 +125,8 @@ export async function listNotificationDeliveryReconciliationQueue(
           attempt.notificationJob.occurrence.startDate,
         endDate:
           attempt.notificationJob.occurrence.endDate,
+        supersededAt:
+          attempt.notificationJob.occurrence.supersededAt,
       },
       client: {
         name:
@@ -192,6 +195,11 @@ export async function reconcileNotificationDeliveryAttempt(
               status: true,
               attemptCount: true,
               failedAt: true,
+              occurrence: {
+                select: {
+                  supersededAt: true,
+                },
+              },
             },
           },
         },
@@ -207,6 +215,11 @@ export async function reconcileNotificationDeliveryAttempt(
         attemptNumber: attempt.attemptNumber,
         jobAttemptCount:
           attempt.notificationJob.attemptCount,
+        occurrenceSuperseded:
+          Boolean(
+            attempt.notificationJob.occurrence
+              .supersededAt,
+          ),
         jobStatus:
           attempt.notificationJob.status,
       });

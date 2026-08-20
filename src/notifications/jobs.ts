@@ -2,6 +2,8 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import type { PrismaClient } from "@prisma/client";
+
 import { db } from "@/lib/db";
 import {
   computeNotificationContentSha256,
@@ -39,7 +41,25 @@ export async function commitOccurrenceNotificationPlan(
   occurrenceId: string,
   actorId: string,
 ) {
-  return db.$transaction(async (tx) => {
+  return commitOccurrenceNotificationPlanWithDatabase(
+    db,
+    occurrenceId,
+    actorId,
+    { source: "MANUAL" },
+  );
+}
+
+export async function commitOccurrenceNotificationPlanWithDatabase(
+  database: PrismaClient,
+  occurrenceId: string,
+  actorId: string,
+  options: {
+    source?: "MANUAL" | "AUTOMATION";
+  } = {},
+) {
+  const source = options.source ?? "MANUAL";
+
+  return database.$transaction(async (tx) => {
     await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(
         hashtext(${occurrenceId}),
@@ -275,6 +295,7 @@ export async function commitOccurrenceNotificationPlan(
         entityType: "HolidayOccurrence",
         entityId: occurrenceId,
         metadata: {
+          commitSource: source,
           jobCount: matched.length,
           plannedCount,
           waitingApprovalCount,
@@ -301,6 +322,7 @@ export async function commitOccurrenceNotificationPlan(
         aggregateId: occurrenceId,
         payload: {
           occurrenceId,
+          commitSource: source,
           committedAt: now.toISOString(),
           jobCount: matched.length,
           plannedCount,
@@ -320,6 +342,7 @@ export async function commitOccurrenceNotificationPlan(
       waitingApprovalCount,
       approvalRequestId:
         approval?.approvalRequestId ?? null,
+      commitSource: source,
       deliveryMode: "DISABLED" as const,
     };
   });

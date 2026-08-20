@@ -19,8 +19,7 @@ export type RevisionValidationCode =
   | "INVALID_REVISION_ID"
   | "DUPLICATE_REVISION_TARGET"
   | "REVISION_TARGET_NOT_FOUND"
-  | "REVISION_TARGET_SUPERSEDED"
-  | "REVISION_TARGET_NOTIFICATION_COMMITTED";
+  | "REVISION_TARGET_SUPERSEDED";
 
 export type RevisionValidation =
   | {
@@ -145,19 +144,65 @@ export function validateRevisionTargetStates(
           `Revision ID ${revisionId} has already been superseded and cannot be revised again.`,
       };
     }
-
-    if (target.notificationCommittedAt) {
-      return {
-        ok: false,
-        code: "REVISION_TARGET_NOTIFICATION_COMMITTED",
-        revisionId,
-        reason:
-          `Revision ID ${revisionId} can no longer be revised because notification delivery has crossed the cancellation boundary.`,
-      };
-    }
   }
 
   return collected;
+}
+
+export type RevisionNotificationJobStatus =
+  | "WAITING_APPROVAL"
+  | "PLANNED"
+  | "DUE"
+  | "PROCESSING"
+  | "RETRY_WAIT"
+  | "SENT"
+  | "FAILED"
+  | "CANCELLED";
+
+export type RevisionDeliveryBoundary =
+  | {
+      ok: true;
+      cancellableCount: number;
+      sentCount: number;
+    }
+  | {
+      ok: false;
+      reason: string;
+    };
+
+export function revisionDeliveryBoundary(
+  statuses: readonly RevisionNotificationJobStatus[],
+): RevisionDeliveryBoundary {
+  if (
+    statuses.some(
+      (status) => status === "PROCESSING",
+    )
+  ) {
+    return {
+      ok: false,
+      reason:
+        "A notification delivery is currently PROCESSING. Wait for delivery completion or recovery before publishing the correction.",
+    };
+  }
+
+  const cancellable = new Set<
+    RevisionNotificationJobStatus
+  >([
+    "WAITING_APPROVAL",
+    "PLANNED",
+    "DUE",
+    "RETRY_WAIT",
+  ]);
+
+  return {
+    ok: true,
+    cancellableCount: statuses.filter(
+      (status) => cancellable.has(status),
+    ).length,
+    sentCount: statuses.filter(
+      (status) => status === "SENT",
+    ).length,
+  };
 }
 
 export async function validateRevisionTargets(
