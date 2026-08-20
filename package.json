@@ -19,7 +19,8 @@
     "verify:fast": "npm run typecheck && npm test && npm run lint",
     "verify": "npm run verify:fast && npm run build",
     "email:smtp:test": "node --env-file=.env --import tsx scripts/email-smtp-test.ts",
-    "notification:smtp:pilot": "node --env-file=.env --import tsx scripts/notification-smtp-pilot.ts"
+    "notification:smtp:pilot": "node --env-file=.env --import tsx scripts/notification-smtp-pilot.ts",
+    "ops:production-readiness": "node --env-file=.env --import tsx scripts/production-readiness-check.ts"
   },
   "engines": {
     "node": ">=20.19.0"

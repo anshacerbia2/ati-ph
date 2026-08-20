@@ -781,3 +781,13 @@ Phase 3 Email Delivery detailed design may continue in parallel at the contract 
 No specific paid provider is a prerequisite for Phase 2
 
 The first Phase 3 transport adapter is Generic SMTP, while the concrete provider remains runtime configuration subject to Operations, IT, security, sender-domain, and deliverability approval
+
+## Software Completion Checkpoint — 2026-08-20
+
+ATI PH first-product software scope is complete through trusted automation and product-completion controls
+
+Implemented software includes scheduled planning, policy-controlled send eligibility, exception approval, zero-recipient detection, scheduler-lag and delivery-failure alerts, correction/replanning, operational dashboard, audit visibility, readiness endpoints, retention control, bounded retry, restart-safe lease handling, ambiguous SMTP reconciliation, kill switch, and production-only SMTP release approval
+
+Automatic production SMTP remains intentionally fail-closed until external ATI IT, secret-management, recipient-scope, operational-owner, and business acceptance gates are satisfied
+
+Phase 5 second-application reuse validation remains a separate post-product-completion activity and is not required for ATI PH first-product software completeness

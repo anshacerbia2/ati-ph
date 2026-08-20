@@ -233,6 +233,26 @@ export function TrustedAutomationOperations() {
                 </span>
               </div>
             </article>
+
+            <article className="notification-occurrence-card">
+              <div>
+                <strong>Delivery state</strong>
+                <span>
+                  Planned{" "}
+                  {overview.jobs.PLANNED ?? 0}
+                  {" · "}due{" "}
+                  {overview.jobs.DUE ?? 0}
+                  {" · "}retry{" "}
+                  {overview.jobs.RETRY_WAIT ?? 0}
+                </span>
+                <span>
+                  Sent{" "}
+                  {overview.jobs.SENT ?? 0}
+                  {" · "}failed{" "}
+                  {overview.jobs.FAILED ?? 0}
+                </span>
+              </div>
+            </article>
           </div>
 
           {overview.alerts.items.length ===

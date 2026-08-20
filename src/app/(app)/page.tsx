@@ -17,6 +17,9 @@ export default async function OverviewPage() {
   const permissions = new Set(authorization.permissions);
   const canReadImports = permissions.has(PERMISSIONS.IMPORT_READ);
   const canReadRegions = permissions.has(PERMISSIONS.CALENDAR_REGION_READ);
+  const canReadNotifications = permissions.has(
+    PERMISSIONS.NOTIFICATION_PLAN_READ,
+  );
 
   if (authorization.roles.length === 0) {
     return (
@@ -38,19 +41,63 @@ export default async function OverviewPage() {
     );
   }
 
-  const [totalImports, validatedImports, invalidImports, activeRegions] =
-    await Promise.all([
-      canReadImports ? db.importBatch.count() : Promise.resolve(0),
-      canReadImports
-        ? db.importBatch.count({ where: { status: "VALIDATED" } })
-        : Promise.resolve(0),
-      canReadImports
-        ? db.importBatch.count({ where: { status: "INVALID" } })
-        : Promise.resolve(0),
-      canReadRegions
-        ? db.calendarRegion.count({ where: { isActive: true } })
-        : Promise.resolve(0),
-    ]);
+  const [
+    totalImports,
+    validatedImports,
+    invalidImports,
+    activeRegions,
+    dueNotifications,
+    failedNotifications,
+    openNotificationAlerts,
+    unknownDeliveryOutcomes,
+  ] = await Promise.all([
+    canReadImports
+      ? db.importBatch.count()
+      : Promise.resolve(0),
+    canReadImports
+      ? db.importBatch.count({
+          where: { status: "VALIDATED" },
+        })
+      : Promise.resolve(0),
+    canReadImports
+      ? db.importBatch.count({
+          where: { status: "INVALID" },
+        })
+      : Promise.resolve(0),
+    canReadRegions
+      ? db.calendarRegion.count({
+          where: { isActive: true },
+        })
+      : Promise.resolve(0),
+    canReadNotifications
+      ? db.notificationJob.count({
+          where: { status: "DUE" },
+        })
+      : Promise.resolve(0),
+    canReadNotifications
+      ? db.notificationJob.count({
+          where: { status: "FAILED" },
+        })
+      : Promise.resolve(0),
+    canReadNotifications
+      ? db.notificationOperationalAlert.count({
+          where: { status: "OPEN" },
+        })
+      : Promise.resolve(0),
+    canReadNotifications
+      ? db.notificationDeliveryAttempt.count({
+          where: {
+            status: "FAILED",
+            failureClass:
+              "OUTCOME_UNKNOWN",
+            reconciliationAction: null,
+            notificationJob: {
+              status: "FAILED",
+            },
+          },
+        })
+      : Promise.resolve(0),
+  ]);
 
   return (
     <div className="page-stack">
@@ -65,6 +112,26 @@ export default async function OverviewPage() {
         <MetricCard label="Validated" value={validatedImports} />
         <MetricCard label="Invalid" value={invalidImports} />
         <MetricCard label="Active regions" value={activeRegions} />
+        {canReadNotifications ? (
+          <>
+            <MetricCard
+              label="Notifications due"
+              value={dueNotifications}
+            />
+            <MetricCard
+              label="Delivery failed"
+              value={failedNotifications}
+            />
+            <MetricCard
+              label="Open alerts"
+              value={openNotificationAlerts}
+            />
+            <MetricCard
+              label="Unknown outcomes"
+              value={unknownDeliveryOutcomes}
+            />
+          </>
+        ) : null}
       </section>
 
       <section className="ati-card workspace-links">
@@ -89,6 +156,21 @@ export default async function OverviewPage() {
             <Link className="workspace-link" href="/admin/calendar-regions">
               <strong>Calendar regions</strong>
               <span>View governed regions and approved source aliases</span>
+            </Link>
+          ) : null}
+
+          {canReadNotifications ? (
+            <Link
+              className="workspace-link"
+              href="/notification-planning"
+            >
+              <strong>
+                Notification operations
+              </strong>
+              <span>
+                Planning, exception queues, delivery reconciliation,
+                automation health and audit
+              </span>
             </Link>
           ) : null}
         </div>

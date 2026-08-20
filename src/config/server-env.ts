@@ -102,6 +102,9 @@ const serverEnvSchema = z.object({
   EMAIL_SMTP_TEST_RECIPIENT: z.email().optional(),
   EMAIL_SMTP_PILOT_ENABLED: z.enum(["true", "false"]).default("false"),
   EMAIL_SMTP_PILOT_RECIPIENT: z.email().optional(),
+  EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED: z
+    .enum(["true", "false"])
+    .default("false"),
 }).superRefine((env, ctx) => {
   if (env.EMAIL_DELIVERY_MODE !== "DISABLED" && !env.EMAIL_FROM_ADDRESS) {
     ctx.addIssue({

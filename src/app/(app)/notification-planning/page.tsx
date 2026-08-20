@@ -6,6 +6,7 @@ import { getCurrentSession } from "@/auth/session";
 import { AccessDenied } from "@/components/app-shell/AccessDenied";
 import { PageHeader } from "@/components/app-shell/PageHeader";
 import { DeliveryOperations } from "@/components/ph-dashboard/DeliveryOperations";
+import { NotificationAuditTimeline } from "@/components/ph-dashboard/NotificationAuditTimeline";
 import { NotificationPlanning } from "@/components/ph-dashboard/NotificationPlanning";
 import { TrustedAutomationOperations } from "@/components/ph-dashboard/TrustedAutomationOperations";
 
@@ -48,6 +49,7 @@ export default async function NotificationPlanningPage() {
           PERMISSIONS.NOTIFICATION_PLAN_APPROVE,
         )}
       />
+      <NotificationAuditTimeline />
     </div>
   );
 }

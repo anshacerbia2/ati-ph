@@ -4,6 +4,8 @@ export type EmailAutomaticDeliveryRelease = {
   smtpAutomaticDeliveryEnabled: boolean;
   killSwitchActive: boolean;
   killSwitchPath: string | null;
+  productionReleaseRequired: boolean;
+  productionReleaseApproved: boolean;
   canExecuteSmtpAutomatically: boolean;
   reasons: string[];
 };
@@ -31,6 +33,15 @@ export function resolveEmailAutomaticDeliveryRelease(
     killSwitchPath !== null && fileExists(killSwitchPath);
   const killSwitchActive =
     staticKillSwitch || fileKillSwitch;
+  const productionReleaseRequired =
+    env.NODE_ENV?.trim().toLowerCase() ===
+    "production";
+  const productionReleaseApproved =
+    readBoolean(
+      env.EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED,
+      false,
+      "EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED",
+    );
   const reasons: string[] = [];
 
   if (!smtpAutomaticDeliveryEnabled) {
@@ -48,13 +59,26 @@ export function resolveEmailAutomaticDeliveryRelease(
       `kill-switch file exists at ${killSwitchPath}`,
     );
   }
+  if (
+    productionReleaseRequired &&
+    !productionReleaseApproved
+  ) {
+    reasons.push(
+      "EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED is not explicitly true in production",
+    );
+  }
 
   return {
     smtpAutomaticDeliveryEnabled,
     killSwitchActive,
     killSwitchPath,
+    productionReleaseRequired,
+    productionReleaseApproved,
     canExecuteSmtpAutomatically:
-      smtpAutomaticDeliveryEnabled && !killSwitchActive,
+      smtpAutomaticDeliveryEnabled &&
+      !killSwitchActive &&
+      (!productionReleaseRequired ||
+        productionReleaseApproved),
     reasons,
   };
 }
