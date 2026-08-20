@@ -64,7 +64,7 @@ describe("notification job scheduler foundation", () => {
     );
   });
 
-  it("keeps scheduler and delivery as separate boundaries", () => {
+  it("keeps scheduler, delivery execution, and SMTP release control as separate boundaries", () => {
     expect(scheduler).not.toContain(
       "EmailDeliveryEngine",
     );
@@ -78,11 +78,17 @@ describe("notification job scheduler foundation", () => {
       "executeStreamNotificationDelivery",
     );
     expect(worker).toContain(
-      "notification external delivery remains gated",
+      "executeSmtpNotificationDelivery",
+    );
+    expect(worker).toContain(
+      "resolveEmailAutomaticDeliveryRelease",
+    );
+    expect(worker).toContain(
+      "canExecuteSmtpAutomatically",
     );
     expect(worker).not.toContain("sendMail");
     expect(planningPage).toContain(
-      "external SMTP delivery remains gated",
+      "double-gated by explicit release controls",
     );
   });
 

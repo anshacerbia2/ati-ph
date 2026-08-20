@@ -31,15 +31,21 @@ const packageJson = JSON.parse(
 };
 
 describe("manual SMTP test contract", () => {
-  it("keeps production SMTP NotificationJob execution gated", () => {
+  it("keeps automatic SMTP NotificationJob execution behind explicit release control", () => {
     expect(worker).toContain(
-      'emailDelivery?.mode === "STREAM"',
+      'emailDelivery?.mode === "SMTP"',
     );
     expect(worker).toContain(
-      "SMTP transport configured, but notification external delivery remains gated",
+      "resolveEmailAutomaticDeliveryRelease",
     );
-    expect(worker).not.toContain(
-      'emailDelivery?.mode === "SMTP" &&',
+    expect(worker).toContain(
+      "canExecuteSmtpAutomatically",
+    );
+    expect(worker).toContain(
+      "executeSmtpNotificationDelivery",
+    );
+    expect(worker).toContain(
+      "leaseRetrySafe: false",
     );
   });
 

@@ -74,16 +74,19 @@ describe("notification delivery retry and lease recovery contract", () => {
       "promoteRetryableNotificationJobs",
     );
     expect(delivery).toContain(
-      `'RETRY_WAIT'::"notification"."NotificationJobStatus"`,
+      "'RETRY_WAIT'::\"notification\".\"NotificationJobStatus\"",
     );
     expect(delivery).toContain(
       'job."retryAt" <=',
     );
   });
 
-  it("marks STREAM claims retry-safe but keeps SMTP execution gated", () => {
+  it("marks STREAM claims retry-safe and SMTP claims non-retry-safe behind release control", () => {
     expect(worker).toContain(
       "leaseRetrySafe: true",
+    );
+    expect(worker).toContain(
+      "leaseRetrySafe: false",
     );
     expect(worker).toContain(
       "recoverExpiredNotificationDeliveryClaims",
@@ -92,7 +95,10 @@ describe("notification delivery retry and lease recovery contract", () => {
       "promoteRetryableNotificationJobs",
     );
     expect(worker).toContain(
-      "notification external delivery remains gated",
+      "resolveEmailAutomaticDeliveryRelease",
+    );
+    expect(worker).toContain(
+      "canExecuteSmtpAutomatically",
     );
   });
 });

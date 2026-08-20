@@ -37,11 +37,19 @@ describe("controlled NotificationJob SMTP pilot contract", () => {
     expect(pilot).not.toContain("claimDueNotificationJobs");
   });
 
-  it("keeps automatic SMTP worker execution gated", () => {
+  it("keeps the pilot isolated while automatic SMTP requires separate release controls", () => {
     expect(worker).toContain(
-      "SMTP transport configured, but notification external delivery remains gated",
+      "executeSmtpNotificationDelivery",
     );
-    expect(worker).not.toContain("executeSmtpNotificationDelivery");
+    expect(worker).toContain(
+      "resolveEmailAutomaticDeliveryRelease",
+    );
+    expect(worker).toContain(
+      "canExecuteSmtpAutomatically",
+    );
+    expect(worker).toContain(
+      "leaseRetrySafe: false",
+    );
   });
 
   it("exposes the pilot only as an explicit manual command", () => {

@@ -3,6 +3,9 @@ import {
   NotificationApprovalError,
 } from "@/notifications/notification-approval";
 import { NotificationPlanningError } from "@/notifications/planning";
+import {
+  NotificationDeliveryReconciliationError,
+} from "@/notifications/delivery-reconciliation";
 import { NotificationPolicyError } from "@/notifications/policy";
 
 export async function readNotificationJson(request: Request): Promise<unknown> {
@@ -18,7 +21,8 @@ export function notificationErrorResponse(error: unknown, operation: string): Re
     error instanceof NotificationPolicyError ||
     error instanceof NotificationPlanningError ||
     error instanceof NotificationJobError ||
-    error instanceof NotificationApprovalError
+    error instanceof NotificationApprovalError ||
+    error instanceof NotificationDeliveryReconciliationError
   ) {
     return Response.json(
       { error: error.message, code: error.code },

@@ -5,6 +5,7 @@ import { getUserAuthorization } from "@/auth/authorization";
 import { getCurrentSession } from "@/auth/session";
 import { AccessDenied } from "@/components/app-shell/AccessDenied";
 import { PageHeader } from "@/components/app-shell/PageHeader";
+import { DeliveryOperations } from "@/components/ph-dashboard/DeliveryOperations";
 import { NotificationPlanning } from "@/components/ph-dashboard/NotificationPlanning";
 
 export default async function NotificationPlanningPage() {
@@ -28,7 +29,7 @@ export default async function NotificationPlanningPage() {
   return (
     <div className="page-stack">
       <PageHeader
-        description="Preview and commit durable notification jobs, then govern approval before scheduling. Safe STREAM delivery is available for technical validation; external SMTP delivery remains gated."
+        description="Preview and commit durable notification jobs, govern approval, and reconcile ambiguous delivery outcomes. Automatic SMTP execution is implemented but remains double-gated by explicit release controls."
         eyebrow="Operations"
         title="Notification planning"
       />
@@ -38,6 +39,11 @@ export default async function NotificationPlanningPage() {
         )}
         canCommit={permissions.has(
           PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
+        )}
+      />
+      <DeliveryOperations
+        canReconcile={permissions.has(
+          PERMISSIONS.NOTIFICATION_PLAN_APPROVE,
         )}
       />
     </div>

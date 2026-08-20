@@ -12,7 +12,7 @@ const worker = fs.readFileSync(
 );
 
 describe("worker STREAM notification delivery contract", () => {
-  it("claims and executes delivery only in STREAM mode", () => {
+  it("claims and executes delivery in STREAM mode", () => {
     expect(worker).toContain(
       "claimDueNotificationJobs",
     );
@@ -22,14 +22,26 @@ describe("worker STREAM notification delivery contract", () => {
     expect(worker).toContain(
       'emailDelivery?.mode === "STREAM"',
     );
+    expect(worker).toContain(
+      "leaseRetrySafe: true",
+    );
   });
 
-  it("does not authorize SMTP notification execution yet", () => {
+  it("authorizes SMTP only behind explicit fail-closed release controls", () => {
     expect(worker).toContain(
-      "SMTP transport configured, but notification external delivery remains gated",
+      'emailDelivery?.mode === "SMTP"',
     );
-    expect(worker).not.toContain(
-      'emailDelivery.mode === "SMTP" &&',
+    expect(worker).toContain(
+      "resolveEmailAutomaticDeliveryRelease",
+    );
+    expect(worker).toContain(
+      "canExecuteSmtpAutomatically",
+    );
+    expect(worker).toContain(
+      "executeSmtpNotificationDelivery",
+    );
+    expect(worker).toContain(
+      "leaseRetrySafe: false",
     );
   });
 });

@@ -146,6 +146,14 @@ enum NotificationDeliveryFailureClass {
   @@schema("notification")
 }
 
+enum NotificationDeliveryReconciliationAction {
+  MARK_SENT
+  RETRY
+  FAIL
+
+  @@schema("notification")
+}
+
 model User {
   id                        String                  @id @default(uuid()) @db.Uuid
   externalSubject           String                  @unique @db.VarChar(191)
@@ -165,6 +173,7 @@ model User {
   decidedApprovals          ApprovalRequest[]       @relation("ApprovalDecider")
   publishedOccurrences      HolidayOccurrence[]     @relation("OccurrencePublisher")
   committedNotificationJobs NotificationJob[]       @relation("NotificationJobCommitter")
+  reconciledDeliveryAttempts NotificationDeliveryAttempt[] @relation("NotificationDeliveryReconciler")
 
   @@index([isActive])
   @@map("users")
@@ -740,11 +749,17 @@ model NotificationDeliveryAttempt {
   leaseRetrySafe    Boolean                           @default(false)
   errorCode         String?                           @db.VarChar(120)
   errorMessage      String?                           @db.Text
+  reconciliationAction NotificationDeliveryReconciliationAction?
+  reconciliationNote String?                           @db.Text
+  reconciledAt      DateTime?                          @db.Timestamptz(3)
+  reconciledById    String?                            @db.Uuid
   createdAt         DateTime                          @default(now()) @db.Timestamptz(3)
   notificationJob   NotificationJob                   @relation(fields: [notificationJobId], references: [id], onDelete: Restrict, map: "notification_delivery_attempts_job_fkey")
+  reconciledBy      User?                              @relation("NotificationDeliveryReconciler", fields: [reconciledById], references: [id], onDelete: SetNull, map: "notification_delivery_attempts_reconciled_by_fkey")
 
   @@unique([notificationJobId, attemptNumber], map: "notification_delivery_attempts_job_attempt_key")
   @@index([status, leaseExpiresAt], map: "notification_delivery_attempts_status_lease_idx")
+  @@index([failureClass, reconciliationAction, completedAt], map: "notification_delivery_attempts_reconciliation_idx")
   @@map("notification_delivery_attempts")
   @@schema("notification")
 }

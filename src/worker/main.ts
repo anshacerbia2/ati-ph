@@ -2,6 +2,9 @@ import { PrismaClient } from "@prisma/client";
 
 import { getServerEnv } from "@/config/server-env";
 import {
+  resolveEmailAutomaticDeliveryRelease,
+} from "@/email/automatic-delivery-release";
+import {
   createConfiguredEmailDelivery,
 } from "@/email/factory";
 import {
@@ -11,6 +14,7 @@ import {
   recoverExpiredNotificationDeliveryClaims,
 } from "@/notifications/delivery";
 import {
+  executeSmtpNotificationDelivery,
   executeStreamNotificationDelivery,
 } from "@/notifications/email-delivery-executor";
 import { promoteDueNotificationJobs } from "@/notifications/scheduler";
@@ -121,6 +125,57 @@ async function maintenanceCycle(
         );
       }
     }
+
+    return;
+  }
+
+  if (
+    emailDelivery?.mode === "SMTP"
+  ) {
+    const release =
+      resolveEmailAutomaticDeliveryRelease();
+
+    if (!release.canExecuteSmtpAutomatically) {
+      return;
+    }
+
+    const claims =
+      await claimDueNotificationJobs(db, {
+        batchSize: deliveryBatchSize,
+        leaseSeconds: deliveryLeaseSeconds,
+        provider:
+          emailDelivery.transportCode,
+        leaseRetrySafe: false,
+      });
+
+    for (const claim of claims) {
+      try {
+        const result =
+          await executeSmtpNotificationDelivery({
+            claim,
+            emailEngine:
+              emailDelivery.engine,
+            senderIdentityCode:
+              emailDelivery.senderIdentityCode,
+            transportCode:
+              emailDelivery.transportCode,
+            complete: (completion) =>
+              completeNotificationDeliveryAttempt(
+                db,
+                completion,
+              ),
+          });
+
+        console.info(
+          `Notification SMTP delivery ${result.status} for job ${result.jobId} attempt ${result.attemptId}.`,
+        );
+      } catch (error) {
+        console.error(
+          `Notification SMTP delivery execution failed for job ${claim.jobId}.`,
+          error,
+        );
+      }
+    }
   }
 }
 
@@ -147,15 +202,26 @@ async function main(): Promise<void> {
   if (
     emailDelivery?.mode === "SMTP"
   ) {
-    console.warn(
-      "SMTP transport configured, but notification external delivery remains gated; worker will not claim notification jobs for SMTP.",
-    );
+    const release =
+      resolveEmailAutomaticDeliveryRelease();
+
+    if (release.canExecuteSmtpAutomatically) {
+      console.warn(
+        "AUTOMATIC SMTP DELIVERY IS ENABLED. SMTP claims are non-retry-safe after lease expiry and ambiguous outcomes require reconciliation.",
+      );
+    } else {
+      console.warn(
+        `SMTP transport configured; automatic NotificationJob execution remains blocked: ${release.reasons.join("; ")}.`,
+      );
+    }
   }
 
   console.info(
     emailDelivery?.mode === "STREAM"
       ? "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery + safe STREAM notification delivery)"
-      : "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery; notification email execution disabled)",
+      : emailDelivery?.mode === "SMTP"
+        ? "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery + double-gated SMTP delivery)"
+        : "ati-ph worker started (session maintenance + due scheduler + retry/lease recovery; notification email execution disabled)",
   );
 
   while (!stopping) {
