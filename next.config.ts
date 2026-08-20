@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const basePath =
   process.env.NEXT_PUBLIC_APP_BASE_PATH ?? "/apps/ph-notification/app";
 const devOrigin = new URL(
-  process.env.DEV_APP_ORIGIN ?? "http://localhost:3000",
+  process.env.DEV_APP_ORIGIN ?? "http://localhost:3005",
 ).origin;
 const oidcCallbackUrl = process.env.OIDC_CALLBACK_URL;
 
