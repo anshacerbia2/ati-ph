@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Controlled SMTP connectivity and frozen-NotificationJob business-content pilot proven; automatic production SMTP and trusted automation gates remain open |
-| Version | 0.5.0 |
+| Status | First-product software scope complete; production deployment and external activation gates remain |
+| Version | 0.6.0 |
 | Date | 2026-08-20 |
 | Planning model | Outcome and gate based, not calendar-estimate based |
 | First product | Public Holiday Notification Workflow |
@@ -38,78 +38,53 @@ Foundation work inside Phase 0 establishes the Next.js application, PostgreSQL s
 
 ## 2.1 Current progress — 2026-08-20
 
-Completed delivery slices:
+First-product software implementation is complete through Phase 4
 
 ```text
 Phase 0 foundation
 → implemented
 
-Governed import/calendar
+Phase 1 governed import/calendar
 → implemented
 
-Client routing
+Phase 2 routing, scheduling, frozen content, and approval
 → implemented
 
-Notification policy + global/client schedule
-→ implemented
+Phase 3 controlled delivery
+→ implemented through automatic SMTP execution controls and reconciliation
 
-Plan preview + durable commit
-→ implemented
+Phase 4 trusted automation
+→ implemented with shadow-only default
 
-Notification maker-checker
-→ implemented
-
-Due scheduler + worker
-→ implemented
-
-Delivery attempt contract
-→ implemented
-
-Retry + lease recovery
-→ implemented
-
-Provider-neutral Email Delivery Engine
-→ implemented
-
-Governed workbook-derived email content snapshot
-→ implemented
-
-STREAM delivery proof
-→ implemented
-
-Gated manual SMTP connectivity test
-→ implemented and provider/inbox verified
-
-Controlled same-domain NotificationJob SMTP business-content pilot
-→ implemented and provider/inbox verified
-
-SMTP recipient outcome classification + durable accepted/rejected evidence
-→ implemented; automatic SMTP worker remains gated
+Product completion controls
+→ operational dashboard, audit visibility, readiness endpoints, retention controls, production release gate, acceptance checklist
 ```
 
-The controlled business-content pilot used an existing frozen `PLANNED` NotificationJob, verified its content SHA-256, preserved its subject/body, replaced its frozen client recipients with one same-domain internal ATI recipient, and sent through the real SMTP adapter without claiming or mutating the durable job.
-
-Open production gates:
-
-- ATI IT-approved production SMTP relay/credential path
-- controlled production/client-recipient SMTP pilot scope and authorization
-- automatic SMTP NotificationJob execution by the worker
-- operational/manual reconciliation workflow for partial/incomplete SMTP outcomes
-- unknown-outcome operational remediation
-- bounce/NDR ingestion where required
-- production monitoring/runbook
-- kill switch and rollback validation
-- governed output attachment only if Operations confirms one is required
-
-The following are deliberately not equivalent:
+The current automatic SMTP path is implemented but fail-closed by default
 
 ```text
-manual SMTP connectivity
-controlled internal NotificationJob SMTP pilot
-automatic production SMTP
+non-production automatic SMTP
+→ requires automatic enablement
+→ requires kill switch inactive
+
+production automatic SMTP
+→ requires automatic enablement
+→ requires kill switch inactive
+→ requires explicit production release approval
 ```
 
-Phase 4 trusted automation has not started.
+Open items are production activation or ownership gates rather than missing first-product software:
+
+- ATI IT-approved production SMTP route
+- production secret-management path
+- authorized client-recipient scope
+- monitoring and alert ownership
+- production runbook exercise
+- business-owner production acceptance
+- optional bounce/NDR ingestion when required
+- Operations attachment decision when required
+
+Phase 5 second-application reuse validation remains separate and is not required for ATI PH first-product software completeness
 
 ## 3. Phase 0 — Contract and Decision Baseline
 
@@ -357,134 +332,90 @@ Current planning can produce an explainable durable job where:
 
 ### Objective
 
-Prove external email delivery safely through the provider-neutral Email Delivery Engine before automatic client-recipient SMTP execution is allowed.
+Provide provider-neutral, durable, fail-closed external email delivery with explicit production release controls
 
-### Implemented delivery foundation
+### Implemented
 
-- provider-neutral `EmailMessage`
-- sender identity separated from transport
-- configured route resolver
-- generic SMTP adapter
-- STREAM adapter
-- deterministic Message-ID
-- idempotency header
-- delivery attempt persistence
-- `PLANNED -> DUE -> PROCESSING -> SENT/RETRY_WAIT/FAILED` execution contract
-- worker lease claim and recovery
-- retry ceiling
-- exponential retry backoff
-- RETRYABLE / TERMINAL / OUTCOME_UNKNOWN classification
-- fail-closed unknown outcome
+- provider-neutral EmailMessage and sender identity
+- STREAM and generic SMTP adapters
+- deterministic Message-ID and idempotency header
+- durable NotificationDeliveryAttempt
+- `PLANNED -> DUE -> PROCESSING -> SENT/RETRY_WAIT/FAILED`
+- retry ceiling and exponential backoff
+- lease claim and recovery
+- SMTP `leaseRetrySafe=false`
+- RETRYABLE / TERMINAL / OUTCOME_UNKNOWN
 - frozen content checksum validation
-- worker automatic execution only for STREAM
-- automatic SMTP worker gate
+- exact recipient acceptance/rejection evidence
+- fail-closed partial/incomplete SMTP outcome
+- authorized OUTCOME_UNKNOWN reconciliation
+- manual mark delivered, retry, and close failed
+- correction-safe retry blocking for superseded occurrences
+- worker SMTP execution behind explicit automatic enablement and kill switch
+- production-only release approval flag
+- no automatic provider fallback
 
-### Controlled SMTP validation completed — 2026-08-20
-
-#### Gate A — SMTP connectivity
-
-```cmd
-npm run email:smtp:test -- --send
-```
-
-Proven:
-
-- current Google direct-SMTP credentials accepted
-- TLS/host/port accepted
-- sender identity accepted
-- same-domain internal ATI recipient accepted
-- message arrived in inbox
-
-#### Gate B — frozen NotificationJob business-content pilot
-
-```cmd
-npm run notification:smtp:pilot -- --job <notification-job-uuid> --send
-```
-
-Proven:
-
-- a real frozen `PLANNED` NotificationJob can be read
-- content SHA-256 can be validated
-- exact frozen governed subject/body can traverse the SMTP adapter
-- client recipients can be safely replaced with one same-domain internal pilot recipient
-- CC/BCC can be cleared
-- provider acceptance can be observed
-- inbox rendering can be reviewed
-- pilot execution does not claim or mutate the durable job
-- worker SMTP remains gated
-
-A downstream corporate confidentiality footer was observed after the governed ATI PH body. It is not present in the application template and is not part of the frozen ATI PH content hash.
-
-### Current SMTP safety boundary
+### Production safety boundary
 
 ```text
 EMAIL_DELIVERY_MODE=SMTP
-+
-manual connectivity command
-→ allowed only with EMAIL_SMTP_TEST_ENABLED=true
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
+EMAIL_DELIVERY_KILL_SWITCH=false
 
-EMAIL_DELIVERY_MODE=SMTP
-+
-controlled NotificationJob pilot command
-→ allowed only with EMAIL_SMTP_PILOT_ENABLED=true
-
-EMAIL_DELIVERY_MODE=SMTP
-+
-worker
-→ does not claim NotificationJobs
+NODE_ENV=production
+→ additionally requires EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
 ```
 
-### Remaining Phase 3 gates
+The direct Google SMTP path is development/pilot evidence only and is not production route approval
 
-- approve the actual production SMTP relay/route with ATI IT
-- approve production secret-management path
-- define controlled production/client-recipient pilot scope
-- review partial SMTP acceptance semantics
-- define unknown-outcome remediation
-- add bounce/NDR reconciliation where required
-- add monitoring and production runbook
-- add kill-switch and rollback procedure
-- confirm whether Operations requires a governed output attachment
-- implement and review the explicit worker SMTP execution release slice
+### Remaining production activation gates
 
-### Exit gate
+- ATI IT-approved production SMTP sender/relay route
+- approved production secret path
+- authorized client-recipient scope
+- monitoring/runbook owner
+- controlled production delivery acceptance where required
+- Operations attachment decision if applicable
+- business-owner production acceptance
+- bounce/NDR ingestion only when required by the production operating model
 
-Phase 3 is complete only when:
-
-- production route and credentials are approved
-- controlled production/client-recipient delivery is accepted
-- duplicate-send behavior under retry/restart is proven
-- partial acceptance behavior is explicit
-- unknown outcomes cannot trigger unsafe resend
-- production worker SMTP can be disabled immediately
-- delivery evidence is traceable
-- monitoring/runbook is operational
-
-Until then, a successful internal SMTP pilot is pre-production evidence, not production activation.
+See `docs/SMTP-AUTOMATIC-DELIVERY-RUNBOOK.md` and `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
 
 ## 7. Phase 4 — Trusted Automation
 
 ### Objective
 
-Move from operator-triggered runs to policy-controlled scheduling
+Move from operator-triggered planning to governed policy-controlled automation without coupling planning release to SMTP release
 
-### Scope
+### Implemented
 
-- Scheduled planning for published holiday occurrences
-- Policy-controlled automatic sending
-- Approval only for exception, threshold, or high-risk runs
-- Alerting for scheduler lag, delivery failure, and unexpected zero-recipient result
-- Correction workflow for updated holidays
-- Operational dashboards
-- Retention jobs
+- scheduled planning of published holiday occurrences
+- shadow-only default
+- policy-controlled automatic plan commit
+- policy-controlled automatic send eligibility
+- maker-checker for required and corrected plans
+- zero-recipient detection
+- planning-blocked alert
+- scheduler-lag alert
+- delivery-failure alert
+- correction and replanning
+- cancellation of unsent superseded jobs
+- preservation of already-sent evidence
+- persistent worker heartbeat
+- operational dashboard
+- notification audit visibility
+- controlled resolved-alert retention
 
-### Release gates
+### Runtime release controls
 
-- Shadow-mode evidence is retained for representative holiday cycles
-- Controlled delivery pilot is accepted by operations and IT
-- Runbook is tested
-- Kill switch and recovery procedure are tested
-- Monitoring and alert ownership are assigned
+```env
+NOTIFICATION_TRUSTED_AUTOMATION_ENABLED=false
+NOTIFICATION_RETENTION_ENABLED=false
+```
+
+Trusted planning and retention remain fail-closed until their operational owners enable them
+
+Trusted planning does not enable SMTP delivery
 
 ## 8. Phase 5 — Reuse Validation with a Second Application
 
@@ -550,7 +481,7 @@ Choose one:
 - Standalone self-hosted output mounted behind the ATI One internal-app proxy
 - Next.js base path `/apps/ph-notification/app` for pages, assets, callbacks, and logout endpoints
 - Framing policy restricted to the approved same-origin ATI One parent
-- ATI One proxy-proof validation on every non-health upstream request when required by network topology
+- ATI One proxy-proof validation on every non-static application request when `TRUST_ATI_ONE_PROXY=true`
 - Prisma migration workflow and schema namespaces
 - Dedicated worker entry point and graceful shutdown
 - Shared domain, application, and infrastructure package boundaries
@@ -766,21 +697,25 @@ The first release is done only when:
 - Runbooks and kill switch are tested
 - Product, operations, IT, and security owners accept the release
 
-## 16. Next Decision
+## 16. Next Action
 
-Complete the remaining Phase 1 acceptance gates first:
+The next engineering action is production deployment preparation and controlled local validation of the production worker/email release path
 
-1. Run the agreed end-to-end smoke with the worker active
-2. Complete mounted ATI One acceptance
-3. Obtain Operations business-owner verification of canonical publication evidence
+Production deployment must follow `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
 
-Then begin Phase 2 Client Routing, Preview, and Governed Output
+The deploy sequence is:
 
-Phase 3 Email Delivery detailed design may continue in parallel at the contract level, using `docs/EMAIL-DELIVERY-PLATFORM.md` as the provider-neutral baseline, but external email delivery must not be enabled before the Phase 2 shadow-mode result is accepted
+1. deploy an explicit release SHA
+2. materialize approved production configuration with email fail-closed
+3. run full verification and production readiness
+4. back up and migrate PostgreSQL
+5. start web
+6. start worker with safe defaults
+7. validate public mounted health/login
+8. enable trusted automation only with operational approval
+9. enable production SMTP only after all external release evidence exists
 
-No specific paid provider is a prerequisite for Phase 2
-
-The first Phase 3 transport adapter is Generic SMTP, while the concrete provider remains runtime configuration subject to Operations, IT, security, sender-domain, and deliverability approval
+Phase 5 second-consumer reuse remains a separate architecture decision after ATI PH production acceptance
 
 ## Software Completion Checkpoint — 2026-08-20
 

@@ -37,6 +37,7 @@
 - [x] Restart, retry, lease-safety and idempotency contracts covered by automated tests
 - [x] Production configuration readiness report
 - [x] Production runbooks
+- [x] AI-agent production deployment runbook
 
 ## Production activation gates
 

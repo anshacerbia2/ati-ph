@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Governed import, routing, notification planning/approval, durable scheduling, retry/lease recovery, governed email snapshots, STREAM delivery, manual SMTP connectivity, and controlled NotificationJob SMTP pilot implemented; automatic SMTP remains gated |
-| Version | 0.5.0 |
+| Status | First-product software scope complete through trusted automation, operational controls, reconciliation, readiness, and production-gated SMTP execution |
+| Version | 0.6.0 |
 | Date | 2026-08-20 |
 | Architecture style | Modular monolith with explicit module contracts |
 | Repository | `D:\ATI-Projects\ati-ph` |
@@ -33,58 +33,65 @@ As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID an
 
 ## 1.1 Implementation snapshot — 2026-08-20
 
-The executable system has advanced into Phase 3 controlled delivery.
+The executable system is software-complete for the ATI PH first-product scope through trusted automation and product readiness controls
 
-Implemented boundaries now include:
+Implemented boundaries include:
 
+- governed import, canonical publication, and correction lineage
 - governed client/service-team/subscription/contact/TO/CC routing
-- versioned notification policy plus global/client schedule resolution
-- explainable plan preview and durable commit
+- versioned notification and schedule policy
+- explainable planning and immutable NotificationJob commit
 - maker-checker notification approval
-- immutable NotificationJob recipient, rule, schedule, and governed rendered-content snapshots
-- content SHA-256 integrity verification
-- due scheduler
-- worker lease claim and recovery
-- retry ceiling and exponential retry backoff
-- explicit RETRYABLE, TERMINAL, and OUTCOME_UNKNOWN failure classes
+- trusted planning automation with shadow-only default
+- automatic DUE scheduling
+- correction/replanning with cancellation of unsent prior jobs
+- corrected-occurrence approval forcing
 - provider-neutral Email Delivery Engine
-- STREAM adapter
-- generic SMTP adapter
-- manual same-domain SMTP connectivity test behind explicit gates
-- controlled same-domain NotificationJob SMTP business-content pilot
-- real SMTP inbox validation of frozen governed content
-- provider-neutral recipient acceptance classification and durable accepted/rejected evidence
+- STREAM and generic SMTP transports
+- delivery leases, bounded retry, retry recovery, and non-retry-safe SMTP lease handling
+- RETRYABLE, TERMINAL, and OUTCOME_UNKNOWN failure classes
+- exact SMTP recipient evidence and fail-closed partial/incomplete outcome handling
+- authorized OUTCOME_UNKNOWN reconciliation
+- automatic SMTP worker execution behind explicit release controls
+- scheduler-lag, zero-recipient, planning-blocked, and delivery-failure alerts
+- persistent worker heartbeat
+- operational dashboard and notification audit visibility
+- readiness endpoints and production configuration validation
+- controlled resolved-alert retention
 
 Current safety boundary:
 
 ```text
+Trusted planning
+→ shadow-only by default
+→ auto-commit only when NOTIFICATION_TRUSTED_AUTOMATION_ENABLED=true
+
 STREAM
-→ worker can execute eligible jobs and mutate durable delivery state
+→ worker may claim eligible jobs
+→ leaseRetrySafe=true
 
-SMTP connectivity test
-→ explicit manual command
-→ no Prisma / no NotificationJob
-→ same-domain internal recipient
+SMTP
+→ worker code path is implemented
+→ leaseRetrySafe=false
+→ automatic claim requires EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
+→ kill switch must be inactive
+→ production additionally requires EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
 
-SMTP NotificationJob pilot
-→ explicit manual command
-→ reads one PLANNED/DUE frozen job
-→ verifies content SHA-256
-→ overrides recipients to one same-domain internal address
-→ no claim / no DeliveryAttempt / no durable job mutation
+partial/incomplete SMTP outcome
+→ OUTCOME_UNKNOWN
+→ no automatic retry
 
-Automatic SMTP worker
-→ still gated
-→ worker does not claim NotificationJobs in SMTP mode
+provider fallback
+→ not implemented
 ```
 
-The active default Public Holiday email content is grounded in the supplied workbook and is frozen at notification-plan commit time.
+The active default Public Holiday email content remains frozen at notification-plan commit time and protected by SHA-256
 
-The 2026-08-20 inbox pilot confirmed the governed subject/body rendering. A corporate confidentiality footer was observed after the governed application body; that footer is not present in the application template source and is treated as downstream mail-system decoration outside the frozen ATI PH content hash.
+The controlled 2026-08-20 direct-SMTP technical and business-content pilots confirmed same-domain internal provider acceptance and inbox rendering
 
-Automatic production/client-recipient SMTP, provider fallback, bounce/NDR ingestion, production monitoring/runbook, and platform extraction remain future gates.
+Remaining gates are production activation/ownership gates rather than missing first-product software: ATI IT production route approval, production secret path, authorized client-recipient scope, monitoring ownership, business acceptance, optional NDR requirement, and any Operations attachment requirement
 
-See `docs/EMAIL-DELIVERY-PLATFORM.md` and `docs/LOCAL-EMAIL-TESTING.md`.
+See `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`, `docs/PRODUCTION-READINESS.md`, `docs/EMAIL-DELIVERY-PLATFORM.md`, and `docs/LOCAL-EMAIL-TESTING.md`
 
 ## 2. Context
 
@@ -154,7 +161,7 @@ flowchart LR
 
 The canonical production browser address is `https://one.atibusinessgroup.com/apps/ph-notification/app`. Its origin is the ATI One public domain and `/apps/ph-notification/app` is the mount path used by the same-origin iframe and internal-app proxy. The Next.js build uses that path as its explicit `basePath`, and every link, asset, Route Handler, callback URI, and logout URI is tested through the complete public mounted address rather than the private upstream address
 
-The upstream deployment remains independently operable as a web and worker workload, but browser access is expected to arrive through the ATI One internal-app proxy. If the upstream is reachable outside the portal network, every non-health request must validate the configured portal proxy proof before processing
+The upstream deployment remains independently operable as a web and worker workload, but browser access is expected to arrive through the ATI One internal-app proxy. When `TRUST_ATI_ONE_PROXY=true`, every non-static application request must validate the configured ATI One proxy proof before processing, including health routes. Static Next.js assets and image routes are excluded by the current proxy matcher
 
 ## 4. Module Ownership
 
@@ -563,35 +570,46 @@ Each table has one owner module. Other modules access it only through a module i
 
 ### 7.2 Physical PostgreSQL layout
 
-ATI PH uses one PostgreSQL database and one physical PostgreSQL schema: `public`. PostgreSQL schemas are not used as module namespaces in this modular monolith
+ATI PH uses one PostgreSQL database with explicit bounded-context PostgreSQL schemas managed by Prisma migrations
 
-Logical ownership remains explicit even though the tables are physically colocated:
+```text
+access
+approval
+governance
+holiday
+import
+notification
+routing
+```
 
-| Table family | Logical owner |
+`public` is retained for Prisma migration bookkeeping rather than application-owned tables
+
+Current physical ownership includes:
+
+| PostgreSQL schema | Primary ownership |
 | --- | --- |
-| `users`, `auth_sessions` | Application Identity and Session |
-| `roles`, `permissions`, `user_roles`, `role_permissions`, `menus` | Authorization |
-| `calendar_regions`, `calendar_region_aliases` and future holiday canonical tables | Public Holiday Workflow |
-| `import_batches`, `import_rows`, `import_validation_issues` | Governed Import |
-| `file_artifacts` | Artifact |
-| `audit_events` | Audit |
-| `outbox_events` | Scheduling and Execution |
-| future `email_providers`, `email_routes`, `delivery_attempts`, `delivery_events` | Email Delivery |
+| `access` | users, sessions, roles, permissions, menus |
+| `approval` | approval requests |
+| `governance` | file artifacts, audit events, outbox events |
+| `holiday` | holiday definitions/occurrences/dates/regions |
+| `import` | import batches, rows, validation issues |
+| `routing` | clients, teams, contacts, subscriptions, recipients |
+| `notification` | schedule/policy versions, NotificationJob, delivery attempts, operational alerts, worker state |
 
-Module boundaries are code-ownership and contract boundaries, not nested database schemas. Cross-module mutation rules below still apply
+Module ownership remains a code and contract boundary in addition to the physical schema boundary
 
-Internal domain/entity PK/FK columns use native PostgreSQL `uuid`. The application-local `users.id` is a UUID generated by ATI PH. The verified Keycloak OIDC `sub` is stored separately as unique `users.externalSubject`
+Internal domain/entity PK/FK columns use native PostgreSQL UUID where applicable. The application-local `users.id` is generated by ATI PH and the verified Keycloak OIDC `sub` is stored separately as unique `users.externalSubject`
 
-The deliberate identifier exceptions are non-domain identifiers: the opaque 256-bit application session handle remains a string bearer token, audit `entityId` and outbox `aggregateId` remain polymorphic strings, and business/source codes remain strings
+The deliberate identifier exceptions remain non-domain identifiers such as the opaque application session handle and polymorphic audit/outbox identifiers
 
 ### 7.3 Identity and authorization boundary
 
 - Keycloak authenticates the user and supplies the verified OIDC subject and identity claims
-- `public.users` is an application-local projection with its own UUID primary key; the verified Keycloak subject is stored in unique `externalSubject`; it stores no password, MFA secret, or authentication credential
-- `public.user_roles` assigns one or more ATI PH roles to that local user
-- Roles aggregate permissions through `public.role_permissions`
+- `access.users` is an application-local projection with its own UUID primary key; the verified Keycloak subject is stored in unique `externalSubject`; it stores no password, MFA secret, or authentication credential
+- `access.user_roles` assigns one or more ATI PH roles to that local user
+- Roles aggregate permissions through `access.role_permissions`
 - Protected backend operations authorize on permission codes, never on menu visibility
-- `public.menus` may hide or expose navigation entries based on a required permission, but a menu record never grants backend access
+- `access.menus` may hide or expose navigation entries based on a required permission, but a menu record never grants backend access
 - Login synchronizes identity profile fields only and does not overwrite local authorization
 - The bootstrap CLI may grant the first application role only after that user has authenticated once and therefore exists in `public.users`
 
@@ -708,7 +726,7 @@ Do not place these inside a generic workflow or rule engine
 | Dependency | Boundary | Initial requirement |
 | --- | --- | --- |
 | Enterprise IdP | Keycloak OIDC authentication | Realm `ati-one`; shared ATI One client ID as a temporary exception; exact mounted callback and logout URIs |
-| ATI One internal-app proxy | Browser delivery and upstream proof | Same-origin iframe mount, `/apps/ph-notification/app` base path, and validated proxy header on every non-health request |
+| ATI One internal-app proxy | Browser delivery and upstream proof | Same-origin iframe mount, `/apps/ph-notification/app` base path, and validated proxy header on every non-static application request |
 | Outbound email providers | Email Delivery Engine | Generic SMTP first, runtime provider registry and routing, optional provider-specific adapters |
 | Object storage | Artifact adapter | Immutable file storage and controlled retrieval |
 | PostgreSQL | Internal persistence | Transaction, outbox, lock, and audit support |
@@ -792,7 +810,7 @@ The `ati-ph` side must preserve these invariants:
 - `ati-ph` uses namespaced cookies such as `ati_ph_session` and never reads or writes `ati_one_*`
 - no ATI One application token or cookie is passed into or interpreted by `ati-ph`
 - the private upstream is not treated as an alternative browser entry point
-- every non-health upstream request validates the configured ATI One proxy proof when the upstream is reachable beyond a private shared network
+- every non-static application request validates the configured ATI One proxy proof when `TRUST_ATI_ONE_PROXY=true`, including health routes
 - framing headers allow the approved same-origin ATI One parent and do not allow arbitrary framing origins
 - a missing Keycloak SSO session escapes the iframe for top-level authentication and returns to the mounted application path
 
@@ -825,7 +843,7 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 | Reusable implementation model | Modules first, services only on evidence |
 | Reusable capabilities | Import, Approval, Notification, Email Delivery, Scheduling, Artifact, Audit |
 | Initial email transport | Generic SMTP Adapter |
-| Email provider selection | Dynamic provider registry and route configuration |
+| Email provider selection | Environment-backed static route resolver today; database-backed dynamic registry remains future |
 | Mandatory paid email provider | No |
 | Email platform extraction | Only after a second production consumer and extraction criteria are satisfied |
 | Domain capability | Holiday lifecycle and matching |
@@ -836,7 +854,9 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 
 ## 15. Next Reference
 
-See `plan.md` for phased delivery, decision gates, and when each module becomes reusable beyond Public Holiday
+See `plan.md` for delivery status, production activation gates, and the separate Phase 5 reuse decision
+
+See `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md` for the authoritative production deployment sequence
 
 See `docs/EMAIL-DELIVERY-PLATFORM.md` for the provider-neutral Email Delivery Engine, dynamic provider routing, safe fallback, and platform-extraction contract
 

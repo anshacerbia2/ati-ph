@@ -3,7 +3,7 @@
 | Metadata | Value |
 | --- | --- |
 | Status | Active |
-| Version | 1.1 |
+| Version | 1.2 |
 | Date | 2026-08-20 |
 | Scope | Automated, STREAM, SMTP connectivity, and controlled NotificationJob SMTP validation |
 | Automatic production SMTP | Gated |
@@ -456,30 +456,58 @@ generic SMTP send exception after the external send attempt begins
 → no automatic retry
 ```
 
-Provider-reported accepted and rejected recipient arrays are persisted on the delivery attempt. The SMTP executor remains intentionally disconnected from the worker.
+Provider-reported accepted and rejected recipient arrays are persisted on the delivery attempt. The SMTP executor is connected to the worker behind explicit automatic enablement, kill-switch, and production-release controls.
 
 ## 7. Production safety state
 
-Production remains fail-closed:
+Production remains fail-closed by default:
 
 ```env
 EMAIL_DELIVERY_MODE=DISABLED
 EMAIL_SMTP_TEST_ENABLED=false
 EMAIL_SMTP_PILOT_ENABLED=false
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=false
+EMAIL_DELIVERY_KILL_SWITCH=true
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=false
 ```
 
-Current worker rule:
+Current worker behavior:
 
 ```text
 STREAM
-→ may claim and execute eligible notification jobs
+→ may claim and execute eligible jobs
+→ leaseRetrySafe=true
 
-SMTP
-→ logs gated warning
-→ does not claim NotificationJobs
+SMTP with release controls closed
+→ does not claim SMTP jobs
+
+SMTP with automatic enabled + kill switch inactive
+→ may claim eligible SMTP jobs outside production
+
+SMTP in NODE_ENV=production
+→ additionally requires EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
+→ leaseRetrySafe=false
 ```
 
-A successful connectivity test or controlled pilot does not remove this worker gate.
+A successful connectivity test or controlled pilot does not remove the worker release gate
+
+### 7.1 Local production-path worker validation
+
+When intentionally testing the production worker/email path locally, use a dedicated local/test database and a deliberately safe NotificationJob recipient snapshot
+
+Before opening automatic SMTP locally:
+
+- prove there is no unintended eligible client-recipient DUE/RETRY job
+- use one controlled same-domain internal recipient
+- preserve a database snapshot
+- set `NODE_ENV=production` so the production-only release flag is exercised
+- enable the SMTP production release controls only for the test window
+- stop the worker immediately after the intended delivery is observed
+- return automatic enablement to false and kill switch to true after the test
+
+Do not use an existing production-like database with unknown eligible recipients for this validation
+
+The exact local execution steps should be performed interactively and reviewed immediately before the worker is started
 
 ## 8. Secrets
 
@@ -499,26 +527,33 @@ Only sanitized placeholders belong in `.env.example` and `.env.production.exampl
 
 ## 9. Before automatic production SMTP release
 
-Completed evidence:
+Software evidence completed:
 
-- generic SMTP adapter implemented
+- generic SMTP adapter
 - direct SMTP connectivity accepted
-- same-domain internal technical test reached inbox
-- frozen NotificationJob business-content pilot accepted
-- frozen business-content pilot reached inbox
-- governed subject/body rendering visually confirmed
-- automatic worker SMTP remained gated throughout testing
+- same-domain internal technical inbox receipt
+- frozen NotificationJob business-content pilot
+- governed subject/body confirmation
+- exact accepted/rejected recipient persistence
+- partial/incomplete outcome fail-closed behavior
+- OUTCOME_UNKNOWN reconciliation
+- bounded retry
+- non-retry-safe SMTP lease recovery
+- automatic worker SMTP gate
+- kill switch
+- production-only release approval
+- operational alerts and worker heartbeat
+- production readiness and deployment runbook
 
-Still required:
+External release evidence still required:
 
 - ATI IT-approved production sender/relay route
-- production secret-management path
-- controlled production/client-recipient pilot scope and approval
-- partial SMTP acceptance semantics
-- unknown-outcome manual remediation path
-- bounce/NDR ingestion where required
-- production monitoring and runbook
-- kill-switch behavior
-- rollback procedure
-- Operations confirmation of any required output attachment contract
-- explicit release review before worker SMTP claim is enabled
+- approved production secret-management path
+- authorized client-recipient production scope
+- monitoring and alert ownership
+- controlled production/client-recipient acceptance where required
+- Operations confirmation of any required attachment
+- business-owner production acceptance
+- bounce/NDR ingestion only if required by the operating model
+
+See `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`

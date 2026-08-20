@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Stage 1 reusable engine implemented; manual SMTP connectivity and controlled NotificationJob SMTP pilot proven; automatic production SMTP remains gated |
-| Version | 0.3.0 |
+| Status | Stage 1 reusable engine implemented through gated automatic SMTP execution, reconciliation, and production readiness; production activation remains gated |
+| Version | 0.4.0 |
 | Date | 2026-08-20 |
 | First consumer | Public Holiday Notification Workflow |
 | Current implementation | Provider-neutral engine, STREAM, generic SMTP, durable attempt/retry contract, manual SMTP connectivity test, controlled frozen-NotificationJob SMTP pilot |
@@ -22,41 +22,40 @@ It becomes a shared platform only after a second production consumer validates t
 
 Implemented:
 
-- `EmailMessage` contract
+- provider-neutral `EmailMessage`
 - sender identity separate from transport
-- transport registry
-- static route resolver
+- environment-backed route resolver
 - STREAM transport
 - generic SMTP transport
-- deterministic Message-ID
-- idempotency header
-- Nodemailer security baseline
-- file and URL attachment access disabled
-- NotificationJob delivery attempts
-- provider/provider message ID evidence
+- deterministic Message-ID and idempotency header
+- Nodemailer file/URL access disabled
+- durable NotificationJob delivery attempts
+- provider/provider-message ID evidence
+- accepted/rejected recipient evidence
 - claim leases
-- retry ceiling
-- exponential retry backoff
-- `RETRYABLE`, `TERMINAL`, and `OUTCOME_UNKNOWN`
+- retry ceiling and exponential backoff
+- RETRYABLE, TERMINAL, and OUTCOME_UNKNOWN
 - expired-lease recovery
-- fail-closed unknown outcome
-- frozen governed Public Holiday email content
+- SMTP claims marked non-retry-safe
+- fail-closed partial/incomplete SMTP outcomes
+- frozen governed Public Holiday content
 - content SHA-256 verification
-- approval hash over the exact frozen delivery content
-- explicit gated manual SMTP connectivity test
-- controlled same-domain NotificationJob SMTP business-content pilot with no durable job mutation
-- provider-neutral full/partial/rejected/incomplete recipient acceptance classification
-- durable accepted/rejected recipient evidence on `NotificationDeliveryAttempt`
+- approval hash over exact frozen content
+- gated manual SMTP connectivity test
+- controlled same-domain frozen-NotificationJob SMTP pilot
+- automatic SMTP worker execution behind explicit enablement and kill switch
+- production-only SMTP release approval
+- authorized OUTCOME_UNKNOWN reconciliation
+- operational delivery failure alerting
+- production readiness reporting
+- no automatic provider fallback
 
 Still gated or future:
 
-- automatic production SMTP NotificationJob execution
-- provider fallback
-- dynamic database provider registry
+- production/client-recipient SMTP activation
+- database-backed dynamic provider registry
 - provider HTTP API adapters
-- bounce/NDR event ingestion
-- delivery-event reconciliation
-- manual remediation UX for unknown outcomes
+- bounce/NDR ingestion when required
 - formal shared Email Delivery Platform extraction
 
 ## 3. Ownership boundary
@@ -111,38 +110,26 @@ Holiday occurrence
 → PLANNED
 → scheduler
 → DUE
-→ worker
-→ claim + delivery attempt
+→ worker claim + delivery attempt
 → Email Delivery Engine
-→ STREAM today for automatic job execution
+→ STREAM or SMTP
 ```
 
-Two explicit real-SMTP validation paths exist outside worker execution:
+STREAM automatic execution is available for safe local/test transport validation
+
+SMTP automatic execution is implemented but claims jobs only when explicit release controls permit it
 
 ```text
-Manual SMTP connectivity
-→ no Prisma
-→ no NotificationJob
-→ same-domain technical recipient
-→ Email Delivery Engine
-→ generic SMTP
-→ provider acceptance
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
+EMAIL_DELIVERY_KILL_SWITCH=false
+
+production
+→ also EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
 ```
 
-```text
-Controlled NotificationJob SMTP pilot
-→ read one PLANNED/DUE frozen NotificationJob
-→ verify content SHA-256
-→ keep frozen subject/body
-→ override TO to same-domain internal pilot recipient
-→ clear CC/BCC
-→ Email Delivery Engine
-→ generic SMTP
-→ provider acceptance + inbox review
-→ no durable NotificationJob mutation
-```
+SMTP claims use `leaseRetrySafe=false` so an expired external delivery lease becomes OUTCOME_UNKNOWN rather than a blind retry
 
-Automatic SMTP NotificationJob execution is intentionally not connected to the worker yet.
+Manual SMTP connectivity and controlled NotificationJob pilot remain separate operator-run validation tools that do not unlock worker SMTP
 
 ## 5. Durable NotificationJob contract
 
@@ -265,7 +252,7 @@ Missing retry ceiling fails safe to zero automatic retries.
 
 Expired claims are auto-retryable only when the durable attempt is marked `leaseRetrySafe=true`.
 
-For a future SMTP transport, `leaseRetrySafe` must remain false unless transport/provider idempotency proves duplicate delivery cannot occur.
+SMTP worker claims currently use `leaseRetrySafe=false`. This must remain false unless transport/provider idempotency proves duplicate delivery cannot occur.
 
 ## 10. Real SMTP validation slices
 
@@ -413,26 +400,24 @@ Production-safe default:
 EMAIL_DELIVERY_MODE=DISABLED
 EMAIL_SMTP_TEST_ENABLED=false
 EMAIL_SMTP_PILOT_ENABLED=false
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=false
+EMAIL_DELIVERY_KILL_SWITCH=true
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=false
 ```
 
-Current worker:
+Automatic SMTP worker execution is implemented
 
-```text
-STREAM
-→ may claim notification jobs
+Non-production execution requires automatic enablement and an inactive kill switch
 
-SMTP
-→ logs that external delivery is gated
-→ does not claim NotificationJobs
-```
+Production execution additionally requires explicit `EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true`
 
-The manual connectivity command and controlled NotificationJob pilot are explicit operator-run validation tools.
+The runtime kill-switch file can stop new SMTP claims on the next worker polling cycle
 
-Neither command changes the worker gate.
+No provider fallback is automatic
 
 ## 15. Before production SMTP unlock
 
-Completed:
+Software controls completed:
 
 - provider-neutral Email Delivery Engine
 - generic SMTP transport
@@ -440,23 +425,30 @@ Completed:
 - frozen governed content and SHA-256
 - manual direct-SMTP connectivity validation
 - same-domain internal inbox confirmation
-- controlled frozen-NotificationJob SMTP business-content pilot
-- inbox rendering confirmation
-- worker SMTP gate retained
+- controlled frozen-NotificationJob SMTP pilot
+- exact recipient evidence
+- partial/incomplete fail-closed semantics
+- OUTCOME_UNKNOWN reconciliation UI
+- bounded retry
+- SMTP non-retry-safe lease recovery
+- automatic SMTP worker gate
+- kill switch
+- production-only release approval
+- operational delivery alerting
+- readiness and production runbook
 
-Still required:
+External activation evidence still required:
 
 - ATI IT-approved production sender/relay route
 - approved production secret-management path
-- controlled production/client-recipient pilot scope and authorization
-- operational/manual reconciliation path for partial or incomplete SMTP recipient outcomes
-- outcome-unknown remediation path
-- Operations content approval for production use
-- attachment contract confirmed if required
-- monitoring and runbook
-- kill-switch behavior
-- documented rollback
-- explicit reviewed release slice before worker SMTP claims are enabled
+- authorized client-recipient scope
+- monitoring/runbook ownership
+- controlled production delivery acceptance where required
+- business-owner acceptance
+- attachment contract if Operations requires one
+- bounce/NDR ingestion only when required by the operating model
+
+See `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
 
 ## 16. Platform evolution
 

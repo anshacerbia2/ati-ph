@@ -2,8 +2,8 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Living solution proposal; implementation synchronized through controlled frozen-NotificationJob SMTP pilot |
-| Version | 0.3.0 |
+| Status | Living solution proposal; first-product software implemented through trusted automation and production-readiness controls |
+| Version | 0.4.0 |
 | Date | 2026-08-20 |
 | Prepared by | DSD Team |
 | Scope | Internal Operations Public Holiday Notification Workflow |
@@ -34,7 +34,7 @@ The solution shall use:
 
 The current workbook remains useful as a source for requirements, migration, and acceptance comparison, but it must not remain the runtime database or workflow engine
 
-As part of the solution-design work, the DSD Team has now established the application foundation, governed holiday import and publication, client routing, notification policy and scheduling configuration, explainable notification planning, durable committed notification jobs, maker-checker notification approval, due scheduling, worker delivery leases, retry and recovery controls, a provider-neutral Email Delivery Engine, governed workbook-derived email content snapshots, safe STREAM delivery validation, an explicitly gated manual SMTP connectivity test, and a controlled same-domain NotificationJob SMTP business-content pilot with confirmed inbox rendering. Automatic production/client-recipient SMTP NotificationJob delivery, provider failover, bounce/NDR processing, and trusted automation remain controlled future gates and are not represented as production-enabled capabilities
+As part of the solution-design work, the DSD Team has now implemented the application foundation, governed holiday import/publication/correction, client routing, notification and schedule policy, explainable planning, durable frozen NotificationJob commit, maker-checker approval, trusted planning automation, due scheduling, worker leases, bounded retry/recovery, provider-neutral STREAM/SMTP delivery, recipient outcome evidence, ambiguous-outcome reconciliation, operational alerts, worker heartbeat, audit visibility, readiness endpoints, retention controls, and production-gated automatic SMTP execution. Production/client-recipient SMTP remains intentionally disabled by default and requires external ATI IT, secret-management, recipient-scope, monitoring, and business acceptance before the production release flag is opened. Automatic provider fallback remains intentionally absent and bounce/NDR ingestion remains optional/future when required
 
 ## 2. Current Workbook Assessment
 

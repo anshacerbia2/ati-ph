@@ -10,11 +10,19 @@ NOTIFICATION_TRUSTED_AUTOMATION_ENABLED=false
 
 In shadow-only mode the worker scans published uncommitted holidays, records operational alerts, and does not auto-commit notification plans
 
-SMTP automatic delivery remains a separate release decision and is still controlled by
+SMTP automatic delivery remains a separate release decision
+
+Base SMTP automatic controls:
 
 ```text
 EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
 EMAIL_DELIVERY_KILL_SWITCH=false
+```
+
+Production additionally requires:
+
+```text
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
 ```
 
 Enabling trusted planning automation does not open SMTP delivery
@@ -99,3 +107,7 @@ When enabled, only resolved operational alerts older than the configured retenti
 Existing expired-session cleanup remains independent
 
 Audit events, holiday history, notification jobs, delivery evidence, and unresolved alerts are not deleted by this retention job
+
+## Production deployment
+
+Use `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md` for the production start order, readiness checks, and release sequence

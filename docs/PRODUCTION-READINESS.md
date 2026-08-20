@@ -88,3 +88,9 @@ npm run ops:production-readiness
 The command returns a non-zero exit code when application-level production configuration blockers exist
 
 A closed external-delivery gate is reported separately so the application can be production-ready while outbound email remains intentionally disabled
+
+## Deployment runbook
+
+The authoritative production deployment sequence for an AI deploy agent is `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
+
+Production should first deploy web and worker with external SMTP closed, prove mounted health/login, then activate trusted automation and SMTP only through their separate release gates

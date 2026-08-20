@@ -26,43 +26,50 @@ PostgreSQL
 
 ## Current implementation status
 
-Implemented through 2026-08-20:
+Software-complete baseline as of 2026-08-20:
 
 - ATI One mounted application boundary
 - Keycloak authentication with ATI PH-owned database sessions
-- PostgreSQL application authorization and permission-gated menus
+- PostgreSQL-owned application authorization and permission-gated menus
 - Governed holiday XLSX import, validation, maker-checker approval, and canonical publication
 - Bounded-context PostgreSQL schemas
 - Calendar-region governance
 - Client, service-team, contact, subscription, TO, and CC routing
-- Versioned notification policy and global/client scheduling policy
-- Explainable notification planning and durable plan commit
-- Notification plan maker-checker approval
-- Durable `NotificationJob` snapshots
-- Due scheduler
-- Separate worker execution
-- Delivery attempts, leases, lease recovery, retry ceiling, exponential backoff, and failure classification
+- Versioned notification and schedule policies
+- Explainable notification planning and durable frozen NotificationJob commit
+- Notification maker-checker approval
+- Trusted planning automation with shadow-only default
+- Automatic DUE scheduling
+- Holiday correction/replanning with approval forcing for corrected occurrences
 - Provider-neutral Email Delivery Engine
-- Generic SMTP transport
-- Safe in-memory STREAM transport
-- Governed Public Holiday email template sourced from the supplied workbook
-- Frozen rendered email content with SHA-256 integrity check
-- Approval hash includes the exact frozen delivery content
-- Explicit gated manual SMTP connectivity test
-- Controlled same-domain NotificationJob SMTP business-content pilot using frozen job content without durable job mutation
-- Provider-neutral recipient acceptance classification with fail-closed partial/incomplete SMTP outcomes
-- Durable accepted/rejected recipient evidence on `NotificationDeliveryAttempt`
+- STREAM and generic SMTP transports
+- Durable delivery attempts, leases, bounded retry, lease recovery, and failure classification
+- Exact recipient outcome evidence and fail-closed partial/incomplete SMTP handling
+- OUTCOME_UNKNOWN reconciliation with mark-delivered, manual retry, and close-failed actions
+- Automatic SMTP worker execution behind explicit enablement and kill-switch controls
+- Production-only SMTP release approval gate
+- Scheduler-lag, zero-recipient, planning-blocked, and delivery-failure alerts
+- Persistent worker heartbeat and operational dashboard
+- Notification audit visibility
+- Liveness, database health, and full operational readiness endpoints
+- Controlled resolved-alert retention
+- Production readiness CLI and acceptance checklist
 
-Not enabled yet:
+Production activation remains deliberately separate from software completeness
 
-- Automatic SMTP execution of production/client-recipient `NotificationJob` records
-- Automatic provider failover
-- Provider-specific API adapters
-- Bounce/NDR ingestion
-- Production SMTP relay activation
-- Production output attachment contract where Operations has not supplied one
+Not production-enabled by default:
 
-SMTP configuration does not unlock automatic notification delivery. The worker currently claims email jobs only when `EMAIL_DELIVERY_MODE=STREAM`.
+- automatic production/client-recipient SMTP
+- trusted automatic plan commit
+- resolved-alert retention
+- automatic provider fallback
+- provider-specific HTTP API adapters
+- bounce/NDR ingestion
+- production output attachment where Operations has not approved a contract
+
+SMTP worker execution is wired. It claims SMTP jobs only when the release controls permit it. In production this requires explicit automatic enablement, an inactive kill switch, and explicit production release approval.
+
+See `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md` for the production deployment contract
 
 ## Architecture boundary
 
@@ -97,6 +104,10 @@ See:
 - `docs/ACCESS-CONTROL.md`
 - `docs/DATABASE-SCHEMA-BOUNDARIES.md`
 - `docs/GOVERNED-IMPORT-CONTRACT.md`
+- `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
+- `docs/PRODUCTION-READINESS.md`
+- `docs/SMTP-AUTOMATIC-DELIVERY-RUNBOOK.md`
+- `docs/TRUSTED-AUTOMATION-RUNBOOK.md`
 
 ## Authentication boundary
 
@@ -151,17 +162,24 @@ In development only, opening `http://localhost:3005/` redirects to the mounted p
 
 ## Worker responsibility
 
-The worker is not optional in the production topology.
+The worker is not optional in the production topology
 
-It owns background execution such as:
+It owns:
 
 - expired application-session cleanup
+- trusted planning scan and optional automatic plan commit
 - `PLANNED -> DUE` promotion
 - expired delivery-lease recovery
 - `RETRY_WAIT -> DUE` promotion
-- STREAM delivery execution when explicitly configured
+- STREAM delivery when configured
+- SMTP delivery only when explicit release controls permit it
+- scheduler-lag and delivery-failure alert synchronization
+- durable worker heartbeat
+- optional resolved-alert retention
 
-Web requests do not run durable scheduling or delivery work as unawaited background tasks.
+Web requests do not execute durable scheduling or email delivery as unawaited background work
+
+Trusted planning automation and SMTP delivery are independent release controls
 
 ## Database
 
@@ -489,7 +507,7 @@ all requested recipients explicitly rejected
 → RETRYABLE failure
 → bounded by retryCeiling
 
-partial acceptance or incomplete recipient evidence
+partial acceptance or incomplete/inconsistent recipient evidence
 → OUTCOME_UNKNOWN
 → no automatic retry
 
@@ -498,33 +516,47 @@ generic SMTP send throws after the external send attempt begins
 → no automatic retry
 ```
 
-Provider-reported accepted and rejected recipient arrays are persisted on `NotificationDeliveryAttempt`.
+Accepted/rejected recipient evidence is persisted on `NotificationDeliveryAttempt`
 
-The SMTP executor implementing these semantics is tested but remains intentionally disconnected from `src/worker/main.ts`.
+OUTCOME_UNKNOWN attempts are surfaced in the delivery reconciliation queue and require an authorized explicit resolution
+
+A superseded holiday can still be reconciled as delivered or failed, but retry is blocked after correction
 
 ## Production email direction
 
-Production remains fail-closed:
+Production deployment is fail-closed by default
 
 ```env
 EMAIL_DELIVERY_MODE=DISABLED
 EMAIL_SMTP_TEST_ENABLED=false
 EMAIL_SMTP_PILOT_ENABLED=false
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=false
+EMAIL_DELIVERY_KILL_SWITCH=true
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=false
 ```
 
-The direct `smtp.gmail.com` path is proven for controlled development/pilot validation. That does not make it the approved production route.
+The direct `smtp.gmail.com` path is proven only for controlled development/pilot validation
 
-The production target remains an ATI IT-approved Google Workspace relay or another approved SMTP-compatible route without changing Public Holiday business logic.
+The production route remains ATI IT-owned configuration
 
-Automatic SMTP NotificationJob execution is a separate release gate and must not be inferred from either:
+Automatic production SMTP requires all runtime release controls to agree
 
-```text
-SMTP MANUAL TEST ACCEPTED
-or
-NOTIFICATION SMTP PILOT PASS
+```env
+EMAIL_DELIVERY_MODE=SMTP
+EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
+EMAIL_DELIVERY_KILL_SWITCH=false
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
 ```
 
-The worker still refuses to claim NotificationJobs in SMTP mode.
+The final production release flag is mandatory when `NODE_ENV=production`
+
+No automatic provider fallback exists
+
+See:
+
+- `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
+- `docs/PRODUCTION-READINESS.md`
+- `docs/SMTP-AUTOMATIC-DELIVERY-RUNBOOK.md`
 
 ## Validation commands
 
@@ -580,7 +612,7 @@ What it does not prove:
 
 - production relay approval
 - client-recipient production delivery
-- automatic SMTP worker safety
+- production automatic SMTP activation approval
 - bounce/NDR reconciliation
 - production monitoring and runbook readiness
 

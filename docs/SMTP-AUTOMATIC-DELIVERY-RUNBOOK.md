@@ -2,14 +2,24 @@
 
 ## Safety state
 
-Automatic SMTP execution is implemented but fails closed unless both release controls permit it
+Automatic SMTP execution is implemented but fail-closed by default
+
+Base automatic execution controls:
 
 ```text
 EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED=true
 EMAIL_DELIVERY_KILL_SWITCH=false
 ```
 
-Default behavior remains blocked because automatic enablement defaults to `false` and the static kill switch defaults to `true`
+When `NODE_ENV=production`, a third control is mandatory:
+
+```text
+EMAIL_SMTP_PRODUCTION_RELEASE_APPROVED=true
+```
+
+Default behavior remains blocked because automatic enablement defaults to false, the static kill switch defaults to true, and production release approval defaults to false
+
+Trusted planning automation is a separate release decision and does not open SMTP delivery
 
 ## Runtime kill-switch file
 
@@ -64,7 +74,7 @@ generic SMTP exception after the external send attempt begins
 An authorized notification approver must provide a note and choose exactly one action
 
 - `MARK_SENT` records that external evidence proves delivery and moves the NotificationJob to `SENT`
-- `RETRY` explicitly accepts duplicate-send risk and moves the NotificationJob back to `DUE`
+- `RETRY` explicitly accepts duplicate-send risk and moves the NotificationJob back to `DUE` only when the holiday occurrence has not been superseded by a correction
 - `FAIL` closes the NotificationJob as `FAILED`
 
 Every decision records actor, time, action, note, audit evidence, and an outbox event
@@ -74,3 +84,9 @@ Every decision records actor, time, action, note, audit evidence, and an outbox 
 Automatic fallback from one outbound provider or relay to another is intentionally not implemented
 
 Changing transport route remains an explicit operational decision
+
+## Production deployment
+
+Production deployment and activation must follow `docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`
+
+Deployment with SMTP closed is valid and preferred until external release evidence is complete
