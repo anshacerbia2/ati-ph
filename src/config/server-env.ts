@@ -8,13 +8,13 @@ import { z } from "zod";
  * Three modules parse environment values: this schema, `resolveEmailAutomaticDeliveryRelease`
  * and `evaluateProductionReadiness`. The latter two take an injected
  * `Record<string, string | undefined>` because they are pure and heavily tested, and
- * that is worth keeping — but each brought its own boolean rule, and they disagreed:
+ * that is worth keeping â€” but each brought its own boolean rule, and they disagreed:
  * one throws on a value that is neither `true` nor `false`, the other silently reads
  * anything-but-`true` as false.
  *
- * Three variables that decide whether real email leaves the building —
+ * Three variables that decide whether real email leaves the building â€”
  * `EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED`, `EMAIL_DELIVERY_KILL_SWITCH` and
- * `EMAIL_DELIVERY_KILL_SWITCH_PATH` — were read *only* by those modules and appeared
+ * `EMAIL_DELIVERY_KILL_SWITCH_PATH` â€” were read *only* by those modules and appeared
  * in no schema and no `.env.example`. There was no way to learn they existed by
  * reading configuration, which is the failure this file now closes.
  *
@@ -36,7 +36,7 @@ import { z } from "zod";
  * ```
  *
  * `superRefine` below refuses combinations that cannot be meant, so a file edited
- * into an incoherent state fails at boot with the contradiction named — rather than
+ * into an incoherent state fails at boot with the contradiction named â€” rather than
  * starting and quietly doing something else. See `docs/ENVIRONMENT-PROFILES.md`.
  */
 export const serverEnvSchema = z
@@ -77,7 +77,7 @@ export const serverEnvSchema = z
      * Whether the worker process may run at all.
      *
      * "Worker disabled" used to be expressed by not typing `npm run worker`, which is
-     * not a configuration state — nothing in any file said it, so a developer could
+     * not a configuration state â€” nothing in any file said it, so a developer could
      * only find out by looking at what was running. On a local machine that is how a
      * scheduler quietly claims jobs nobody meant to touch.
      *
@@ -172,8 +172,8 @@ export const serverEnvSchema = z
      * configuration.
      *
      * `resolveEmailAutomaticDeliveryRelease` still reads them from its own injected
-     * record and applies these same defaults. That duplication is deliberate — it
-     * keeps the release decision pure and independently testable — and it is now safe,
+     * record and applies these same defaults. That duplication is deliberate â€” it
+     * keeps the release decision pure and independently testable â€” and it is now safe,
      * because nothing illegal can reach it.
      *
      * `EMAIL_DELIVERY_KILL_SWITCH` defaults to **true**. Every other flag here
@@ -187,6 +187,27 @@ export const serverEnvSchema = z
     EMAIL_DELIVERY_KILL_SWITCH_PATH: z.string().min(1).optional(),
   })
   .superRefine((env, ctx) => {
+    /*
+     * Rule 8 needs both halves, and this is where saying so becomes enforceable.
+     *
+     * The check lived in `getServerEnv`, after `parse` â€” so it ran for the process and
+     * for nothing else. The test that validates the three example profiles calls
+     * `serverEnvSchema.safeParse`, which never reached it: a profile could ship
+     * `TRUST_ATI_ONE_PROXY=true` with no secret, pass CI, and fail at boot on the
+     * machine that used it. A coherence rule that only one caller applies is a comment.
+     *
+     * Fail closed, deliberately. Treating a missing secret as "no check wanted" would
+     * make a typo in the variable name indistinguishable from a deliberate opening, and
+     * the guard would wave everything through while the file claims it is on.
+     */
+    if (env.TRUST_ATI_ONE_PROXY === "true" && !env.ATI_ONE_PROXY_SECRET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["ATI_ONE_PROXY_SECRET"],
+        message:
+          "ATI_ONE_PROXY_SECRET is required when TRUST_ATI_ONE_PROXY=true",
+      });
+    }
     if (env.EMAIL_DELIVERY_MODE !== "DISABLED" && !env.EMAIL_FROM_ADDRESS) {
       ctx.addIssue({
         code: "custom",
@@ -237,7 +258,7 @@ export const serverEnvSchema = z
      * Profile coherence.
      *
      * Each rule below rejects a file that cannot mean what it says. They exist because
-     * every one of these combinations *starts* — and then behaves as though a flag the
+     * every one of these combinations *starts* â€” and then behaves as though a flag the
      * operator set were not set, which is the hardest kind of configuration bug to
      * see: nothing fails, and the log agrees with neither reading.
      *
@@ -299,18 +320,9 @@ export type ServerEnv = z.infer<typeof serverEnvSchema>;
 let cachedEnv: ServerEnv | undefined;
 
 export function getServerEnv(): ServerEnv {
-  if (!cachedEnv) {
-    cachedEnv = serverEnvSchema.parse(process.env);
-
-    if (
-      cachedEnv.TRUST_ATI_ONE_PROXY === "true" &&
-      !cachedEnv.ATI_ONE_PROXY_SECRET
-    ) {
-      throw new Error(
-        "ATI_ONE_PROXY_SECRET is required when TRUST_ATI_ONE_PROXY=true",
-      );
-    }
-  }
+  // Nothing but the parse: every coherence rule is in `superRefine`, so the process and
+  // the profile test are held to the same one.
+  cachedEnv ??= serverEnvSchema.parse(process.env);
 
   return cachedEnv;
 }

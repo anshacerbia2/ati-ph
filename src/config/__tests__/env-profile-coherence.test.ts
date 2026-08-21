@@ -79,6 +79,39 @@ describe("environment profile coherence", () => {
     expect(result.success).toBe(true);
   });
 
+  it("refuses rule 8 turned on with no secret to check against", () => {
+    /*
+     * Fail closed, and in the schema rather than in `getServerEnv`.
+     *
+     * The rule used to run after `parse`, so it applied to the process and to nothing
+     * else — the test that validates the three example profiles calls `safeParse` and
+     * never reached it. A profile could ship `TRUST_ATI_ONE_PROXY=true` with no secret,
+     * pass CI, and fail at boot on the machine that used it.
+     *
+     * Closed rather than open because the alternative reading — a missing secret means
+     * no check was wanted — makes a typo in the variable name indistinguishable from a
+     * deliberate opening, and the app would wave every direct request through while the
+     * file says the guard is on.
+     */
+    const result = parse({ TRUST_ATI_ONE_PROXY: "true" });
+
+    expect(result.success).toBe(false);
+    expect(paths(result)).toContain("ATI_ONE_PROXY_SECRET");
+  });
+
+  it("accepts rule 8 with a secret, and off without one", () => {
+    expect(
+      parse({
+        TRUST_ATI_ONE_PROXY: "true",
+        ATI_ONE_PROXY_SECRET: "0123456789012345678901234567890123",
+      }).success,
+    ).toBe(true);
+
+    // A standalone deployment has no portal to prove anything, and production
+    // readiness is what refuses that posture where it would be wrong.
+    expect(parse({ TRUST_ATI_ONE_PROXY: "false" }).success).toBe(true);
+  });
+
   it("refuses automatic delivery armed against a non-SMTP transport", () => {
     /*
      * STREAM never opens a connection, so the flag reads as enabled and sends nothing.
