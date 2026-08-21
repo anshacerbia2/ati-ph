@@ -73,16 +73,11 @@ production automatic SMTP
 → requires explicit production release approval
 ```
 
-Open items are production activation or ownership gates rather than missing first-product software:
-
-- ATI IT-approved production SMTP route
-- production secret-management path
-- authorized client-recipient scope
-- monitoring and alert ownership
-- production runbook exercise
-- business-owner production acceptance
-- optional bounce/NDR ingestion when required
-- Operations attachment decision when required
+Open items are production activation or ownership gates rather than missing first-product
+software. They are listed once, in Phase 3 under *Remaining production activation gates*,
+because that is the phase that owns delivery. This section restated them in slightly
+different words — "monitoring and alert ownership" against "monitoring/runbook owner" —
+which is how two lists of the same thing start disagreeing about what was actually agreed.
 
 Phase 5 second-application reuse validation remains separate and is not required for ATI PH first-product software completeness
 
