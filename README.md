@@ -133,12 +133,18 @@ Requirements:
 Setup:
 
 ```cmd
-copy .env.example .env
+copy .env.local.example .env
 npm install
 npm run db:generate
 npm run db:migrate
 npm run db:seed
 ```
+
+`.env.local.example` is one of three complete profiles — local, test and production.
+Each writes out every variable ATI PH reads, including the ones whose value equals the
+code default, so the file alone tells you what the process will do. `.env.example` holds
+no variables; it is an index naming the three. See
+[`docs/ENVIRONMENT-PROFILES.md`](docs/ENVIRONMENT-PROFILES.md).
 
 Run the web process:
 
@@ -152,11 +158,21 @@ Run the worker separately:
 npm run worker
 ```
 
+**The worker is off in the local profile.** `NOTIFICATION_WORKER_ENABLED=false` makes
+that command print why and exit without starting. That is deliberate: a worker running
+against a database you are editing claims jobs, promotes schedules and mutates durable
+delivery state without being asked. Set it to `true` for a specific test, then set it
+back.
+
 Open:
 
 ```text
-http://localhost:3005/apps/ph-notification/app
+http://localhost:3000
 ```
+
+That is the local profile's address — no mount prefix, because a standalone run is
+served at the origin root. Behind ATI One's proxy the app answers on
+`/apps/ph-notification/app` instead, which is what `NEXT_PUBLIC_APP_BASE_PATH` sets.
 
 In development only, opening `http://localhost:3005/` redirects to the mounted path.
 
@@ -586,10 +602,31 @@ git diff --check
 
 ## Environment files
 
-- `.env.example` is the local-development reference
-- `.env.production.example` is the fail-closed production reference
-- `.env` is local-only and ignored by Git
-- never commit actual database, Keycloak, SMTP, proxy, or session secrets
+**`.env` is the source of truth.** Reading it tells you what the process will do — no
+variable is read that the file does not declare, and no behaviour hides in a code
+default the file leaves out.
+
+| File | Profile | Email | Worker | Can email a client |
+| --- | --- | --- | --- | --- |
+| `.env.local.example` | local development | manual connectivity test | **disabled** | no |
+| `.env.test.example` | shared test | controlled pilot | enabled, delivers nothing | no |
+| `.env.production.example` | production | **automatic** | enabled | **yes** |
+
+- `.env.example` holds no variables. It is an index that names the three above.
+- Copy one whole profile. Do not assemble one from parts — that is the problem these
+  replaced.
+- `src/config/server-env.ts` declares and validates every variable, and refuses
+  combinations that cannot mean what they say: automatic delivery armed against a
+  non-SMTP transport, the test and pilot commands both enabled, delivery armed while the
+  worker is disabled. Those fail at boot with the contradiction named.
+- Every example profile is parsed against that schema by `npm run verify:fast`, so an
+  example that drifts from the code fails in CI rather than on somebody's machine.
+- `.env` is local-only and ignored by Git.
+- Never commit actual database, Keycloak, SMTP, proxy, or session secrets.
+
+[`docs/ENVIRONMENT-PROFILES.md`](docs/ENVIRONMENT-PROFILES.md) is the reference: what
+each profile may do, which variable decides it, and what has to be true before the next
+profile is used.
 
 ## Browser extension hydration warnings
 

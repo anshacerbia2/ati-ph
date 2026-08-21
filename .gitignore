@@ -25,16 +25,27 @@
 .DS_Store
 *.pem
 
+# Office lock files. `docs/` holds committed .xlsx fixtures, and opening one leaves a
+# `~$name.xlsx` beside it that looks like a new file to commit.
+~$*
+
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
+#
+# Every `*.example` profile is committed on purpose: they are the documentation of what
+# each environment does, and a profile nobody can read is a profile nobody follows.
+#
+# The exception was named file by file, so `.env.local.example` and `.env.test.example`
+# were silently ignored the moment they were added — the pattern only knew about the two
+# that existed when it was written. A file that is never committed and never complained
+# about is the worst way to lose one.
 .env*
-!.env.example
-!.env.production.example
+!.env*.example
 
 # vercel
 .vercel

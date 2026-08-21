@@ -100,7 +100,20 @@ Do not regenerate or replace the lockfile during deployment
 
 ## 5. Materialize production environment
 
-`.env.production.example` is a sanitized reference only
+`.env.production.example` is a sanitized reference only. It is one of three complete
+profiles — see [`ENVIRONMENT-PROFILES.md`](./ENVIRONMENT-PROFILES.md) — and unlike the
+local and test profiles it ships with the delivery gates in the open position, because
+that is what production means. Those four lines are not a default to inherit: deploy
+them closed until the release evidence in §9 of `LOCAL-EMAIL-TESTING.md` exists. The
+application runs fully and does not send, which is a deliberate operating state.
+
+Two variables in that profile are worth naming here because they change what an operator
+can do without a release:
+
+```text
+NOTIFICATION_WORKER_ENABLED        the worker refuses to start when false
+EMAIL_DELIVERY_KILL_SWITCH_PATH    `touch` that file to halt delivery next cycle
+```
 
 The actual production runtime currently expects its environment to be available to both the web process and worker. The repository readiness command loads `.env`, so when the deployment platform does not inject environment variables directly into that command, materialize a protected gitignored `.env` from the approved secret source
 

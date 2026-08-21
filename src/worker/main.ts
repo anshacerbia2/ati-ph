@@ -337,6 +337,27 @@ async function wait(
 
 async function main(): Promise<void> {
   const env = getServerEnv();
+
+  /*
+   * The first thing checked, before a transport is built or a query is run.
+   *
+   * Whether this process should exist is a property of the environment, not of
+   * whether somebody typed the command. A local profile that says the worker is off
+   * and a machine where it is running anyway is the state in which a scheduler
+   * claims jobs nobody meant to touch — and there was nothing in any file to
+   * contradict, because "disabled" was expressed by absence.
+   *
+   * Exits zero: a disabled worker in a profile that disables it is the configuration
+   * working, not a failure, and a process manager should not treat it as a crash to
+   * restart.
+   */
+  if (env.NOTIFICATION_WORKER_ENABLED !== "true") {
+    console.warn(
+      "ati-ph worker is disabled by configuration (NOTIFICATION_WORKER_ENABLED is not true). Nothing was claimed, scheduled or delivered.",
+    );
+    return;
+  }
+
   const emailDelivery =
     createConfiguredEmailDelivery(env);
   const trustedAutomationEnabled =
