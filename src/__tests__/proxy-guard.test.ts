@@ -78,6 +78,34 @@ describe("ATI One proxy guard", () => {
     expect(proxy(request("/", SECRET)).status).toBe(200);
   });
 
+  it("refuses the mount root, which is the address a person types", async () => {
+    /*
+     * The one path that escaped. The matcher was
+     * `"/((?!_next/static|_next/image|favicon.ico).*)"`, which did not match the mount
+     * root under `basePath`: `/deliveries` and `/api/health` were refused while
+     * `/apps/ph-notification/app` was served, with or without the header.
+     *
+     * Worth a test of its own rather than folding it into the cases above, because the
+     * guard looked correct from every other path — and the one it missed is the only one
+     * somebody arrives at by typing the app's address.
+     */
+    const response = proxy(request("/", undefined, "text/html"));
+
+    expect(response.status).toBe(403);
+    await expect(response.text()).resolves.toContain(
+      "reachable only through ATI One",
+    );
+  });
+
+  it("refuses a static asset too, when the guard is on", () => {
+    /*
+     * Previously exempt by the matcher. A direct visitor has no business pulling this
+     * app's chunks either, and through the portal they arrive with the header like
+     * everything else, because the proxy sets it on every forwarded request.
+     */
+    expect(proxy(request("/_next/static/chunks/main.js")).status).toBe(403);
+  });
+
   it("admits the liveness endpoint without proof", () => {
     /*
      * The container's own healthcheck runs inside the container and has no secret to

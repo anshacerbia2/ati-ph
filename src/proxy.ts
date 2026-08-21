@@ -122,6 +122,24 @@ function refuse(request: NextRequest): NextResponse {
   );
 }
 
+/**
+ * Everything, and the exclusions live in `proxy` above instead.
+ *
+ * This was `"/((?!_next/static|_next/image|favicon.ico).*)"`, and it did not match the
+ * mount root. `/apps/ph-notification/app/deliveries` was refused; the address a person
+ * actually types was served — with or without the header, which is how it was found. A
+ * negative-lookahead pattern has to be written against whatever Next hands the matcher,
+ * and under `basePath` the root normalises to something that pattern misses.
+ *
+ * `"/:path*"` has nothing to get wrong. Whether an asset is exempt is then an `if` in
+ * TypeScript, next to the reasoning for it, tested by the same file that tests the rest
+ * of the guard — rather than a regular expression whose behaviour depends on a
+ * normalisation step no test in this repository can see.
+ *
+ * Static assets are no longer exempt, and that is the point. With the guard on, a direct
+ * visitor should not be able to pull this app's chunks either; through the portal every
+ * request carries the header, assets included, because the proxy sets it on all of them.
+ */
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/:path*"],
 };
