@@ -66,7 +66,20 @@ out. Three rules keep it that way:
 
 Coherence rules in `superRefine` refuse combinations that cannot mean what they say. Add
 one when you find another; a boot-time refusal that names the contradiction beats a
-deployment that starts and behaves as though a flag were not set.
+deployment that starts and behaves as though a flag were not set. Put them in the schema,
+not in `getServerEnv` — a rule added after `parse` applies to the process and to nothing
+else, so the test that validates the three profiles never reaches it.
+
+Exactly four names are read straight from `process.env`, and none of them can go through
+the schema. Every one is still written out in all three profiles, so the promise above
+holds; what does not hold for these is rule 1, and trying to "fix" that breaks them.
+
+```text
+NEXT_PUBLIC_APP_BASE_PATH   inlined at build time - the bundler substitutes the literal
+DEV_APP_ORIGIN              read in next.config.ts, which runs before the app exists
+DELIVERY_TEST_RECIPIENT     read by the seed, a separate process from the application
+NODE_ENV                    set by the runtime, not by us
+```
 
 ## Governance you must not route around
 
