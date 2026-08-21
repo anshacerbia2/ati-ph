@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { CommittedJobs } from "@/components/ph-dashboard/CommittedJobs";
 import { mountedPath } from "@/config/app";
 
 const PAGE_SIZE = 10;
@@ -22,7 +23,68 @@ type Occurrence = {
     | "APPROVED"
     | "REJECTED";
   regions: Array<{ id: string; code: string; displayName: string }>;
+  delivery: JobStatusCounts;
 };
+
+type JobStatusCounts = {
+  WAITING_APPROVAL: number;
+  PLANNED: number;
+  DUE: number;
+  PROCESSING: number;
+  RETRY_WAIT: number;
+  SENT: number;
+  FAILED: number;
+  CANCELLED: number;
+  total: number;
+};
+
+/**
+ * What happened to this occurrence's jobs, as a line a reader can scan.
+ *
+ * The row used to say `Committed` and go on saying it while the jobs underneath were
+ * delivered, failed and retried — the badge stopped being informative at the moment
+ * something started happening.
+ *
+ * Only non-zero statuses appear, because a row padded with `0 failed · 0 cancelled`
+ * hides the one number that matters among six that do not. `FAILED` and `RETRY_WAIT` are
+ * marked so they read differently at a glance; nothing else is coloured, so colour keeps
+ * meaning "look here".
+ */
+function deliveryParts(
+  counts: JobStatusCounts,
+): Array<{ key: string; label: string; tone?: "bad" | "warn" }> {
+  const parts: Array<{
+    key: string;
+    label: string;
+    tone?: "bad" | "warn";
+  }> = [
+    {
+      key: "total",
+      label: `${counts.total} ${counts.total === 1 ? "job" : "jobs"}`,
+    },
+  ];
+
+  const add = (
+    key: keyof JobStatusCounts,
+    label: string,
+    tone?: "bad" | "warn",
+  ) => {
+    if (counts[key] > 0) {
+      parts.push({ key, label: `${counts[key]} ${label}`, tone });
+    }
+  };
+
+  add("SENT", "sent");
+  add("FAILED", "failed", "bad");
+  add("RETRY_WAIT", "retrying", "warn");
+  add("DUE", "due", "warn");
+  add("PROCESSING", "sending");
+  add("PLANNED", "planned");
+  add("WAITING_APPROVAL", "waiting approval");
+  add("CANCELLED", "cancelled");
+
+  return parts;
+}
 
 type Pagination = {
   page: number;
@@ -458,6 +520,25 @@ export function NotificationPlanning({
               <div>
                 <strong>{occurrence.holidayName}</strong>
                 <span>{occurrence.startDate}{occurrence.endDate !== occurrence.startDate ? ` → ${occurrence.endDate}` : ""}</span>
+                <span className="notification-occurrence-delivery">
+                  {occurrence.delivery.total === 0
+                    ? "No jobs committed yet"
+                    : deliveryParts(occurrence.delivery).map(
+                        (part, index) => (
+                          <span
+                            className={
+                              part.tone
+                                ? `notification-occurrence-delivery__part notification-occurrence-delivery__part--${part.tone}`
+                                : "notification-occurrence-delivery__part"
+                            }
+                            key={part.key}
+                          >
+                            {index > 0 ? " · " : ""}
+                            {part.label}
+                          </span>
+                        ),
+                      )}
+                </span>
               </div>
               <div className="notification-occurrence-regions">
                 {occurrence.regions.map((region) => (
@@ -590,7 +671,12 @@ function MatchingPreviewModal({
               {preview.commit.state === "READY"
                 ? "Commit freezes the current routing, recipients, policy versions, and calculated send time into durable jobs."
                 : preview.commit.state === "COMMITTED"
-                  ? `Committed ${new Date(preview.commit.committedAt).toLocaleString()}. Scheduler will only mark eligible jobs DUE; delivery is still disabled.`
+                  /*
+                   * "delivery is still disabled" was true when nothing could send and
+                   * became a claim the screen could not back up once the release
+                   * controls existed. What is always true is where the answer lives.
+                   */
+                  ? `Committed ${new Date(preview.commit.committedAt).toLocaleString()}. The scheduler marks eligible jobs DUE; whether they are delivered depends on the release controls shown under Trusted automation.`
                   : preview.commit.reasons.map(humanize).join(" · ")}
             </span>
           </div>
@@ -694,6 +780,17 @@ function MatchingPreviewModal({
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {/*
+          * The other half of this modal: what the plan above actually became.
+          *
+          * Only after a commit, because before one there are no jobs — and a section
+          * that renders "nothing yet" on every uncommitted plan would train people to
+          * scroll past it.
+          */}
+        {preview.commit.state === "COMMITTED" ? (
+          <CommittedJobs occurrenceId={preview.occurrence.id} />
         ) : null}
       </div>
     </div>,

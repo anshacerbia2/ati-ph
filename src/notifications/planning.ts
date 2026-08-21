@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type NotificationJobStatus } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import {
@@ -13,6 +13,35 @@ import {
 import type { NotificationListQuery } from "@/notifications/list-query";
 
 export { NotificationPlanningError };
+
+/**
+ * Job counts per status for one occurrence, plus their sum.
+ *
+ * Every status is present and zero-filled rather than omitted when empty, so a caller
+ * renders `0 failed` by reading a number instead of by knowing that a missing key means
+ * none. The two are the same fact and only one of them survives a refactor.
+ */
+export type NotificationJobStatusCounts = Record<
+  NotificationJobStatus,
+  number
+> & { total: number };
+
+const JOB_STATUSES = [
+  "WAITING_APPROVAL",
+  "PLANNED",
+  "DUE",
+  "PROCESSING",
+  "RETRY_WAIT",
+  "SENT",
+  "FAILED",
+  "CANCELLED",
+] as const satisfies readonly NotificationJobStatus[];
+
+function emptyJobStatusCounts(): NotificationJobStatusCounts {
+  const counts = { total: 0 } as NotificationJobStatusCounts;
+  for (const status of JOB_STATUSES) counts[status] = 0;
+  return counts;
+}
 
 export async function listPublishedOccurrences(
   query: NotificationListQuery,
@@ -122,16 +151,32 @@ export async function listPublishedOccurrences(
     }
   }
 
-  const waitingApprovalByOccurrence =
-    new Map<string, number>();
+  /*
+   * Every status, not only the one the approval badge needed.
+   *
+   * The `groupBy` above has always returned counts for `SENT`, `FAILED`, `DUE` and the
+   * rest, and this loop threw them away — so the row said `Committed` on the day it was
+   * committed and went on saying it while the jobs underneath were delivered, failed and
+   * retried. The badge stopped being informative at exactly the moment something started
+   * happening, and the query was already paying for the answer.
+   */
+  const deliveryByOccurrence = new Map<
+    string,
+    NotificationJobStatusCounts
+  >();
 
   for (const row of jobStatusRows) {
-    if (row.status === "WAITING_APPROVAL") {
-      waitingApprovalByOccurrence.set(
-        row.holidayOccurrenceId,
-        row._count._all,
-      );
-    }
+    const counts =
+      deliveryByOccurrence.get(row.holidayOccurrenceId) ??
+      emptyJobStatusCounts();
+
+    counts[row.status] = row._count._all;
+    counts.total += row._count._all;
+
+    deliveryByOccurrence.set(
+      row.holidayOccurrenceId,
+      counts,
+    );
   }
 
   return {
@@ -153,10 +198,20 @@ export async function listPublishedOccurrences(
             occurrence.id,
           ) ?? null,
         waitingApprovalCount:
-          waitingApprovalByOccurrence.get(
-            occurrence.id,
-          ) ?? 0,
+          deliveryByOccurrence.get(occurrence.id)
+            ?.WAITING_APPROVAL ?? 0,
       }),
+      /**
+       * What actually happened to this occurrence's jobs.
+       *
+       * Deliberately the raw counts rather than a single summarising word. A row can be
+       * partly delivered and partly failed at the same time, and any one label for that
+       * would have to choose which half to hide — on a screen whose job is to answer
+       * "was this holiday notified, and to whom".
+       */
+      delivery:
+        deliveryByOccurrence.get(occurrence.id) ??
+        emptyJobStatusCounts(),
       regions: occurrence.regions
         .map((item) => item.calendarRegion)
         .sort((left, right) =>

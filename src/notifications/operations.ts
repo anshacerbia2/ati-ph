@@ -2,6 +2,8 @@ import type {
   PrismaClient,
 } from "@prisma/client";
 
+import { evaluateWorkerHeartbeat } from "@/operations/readiness";
+
 const JOB_STATUSES = [
   "WAITING_APPROVAL",
   "PLANNED",
@@ -20,6 +22,9 @@ export async function getNotificationOperationsOverview(
     smtpAutomaticDeliveryEnabled: boolean;
     smtpKillSwitchActive: boolean;
     smtpCanExecuteAutomatically: boolean;
+    workerEnabled: boolean;
+    workerPollIntervalMs: number;
+    now?: Date;
   },
 ) {
   const [
@@ -106,6 +111,18 @@ export async function getNotificationOperationsOverview(
         input.smtpCanExecuteAutomatically,
     },
     worker,
+    /*
+     * A verdict, not a timestamp. The panel used to print the last success time and leave
+     * the reader to decide whether it was normal — which needs the poll interval, which
+     * was not on the screen. A dead worker and a healthy one looked the same.
+     */
+    workerHeartbeat: evaluateWorkerHeartbeat({
+      workerEnabled: input.workerEnabled,
+      now: input.now ?? new Date(),
+      pollIntervalMs: input.workerPollIntervalMs,
+      lastSuccessfulAt:
+        worker?.lastSuccessfulAt ?? null,
+    }),
     jobs,
     alerts: {
       openCount: openAlertCount,

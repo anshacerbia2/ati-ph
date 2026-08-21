@@ -3396,6 +3396,270 @@ tbody tr:hover { background: var(--ati-gray-50); }
 
 
 /* BEGIN notification-job-scheduler-foundation */
+/*
+ * The delivery rollup under a published holiday.
+ *
+ * Only two states are coloured. Everything a reader might scan past is the same muted
+ * grey as the date above it, so colour on this line means "this one needs you" rather
+ * than "this one is a different word".
+ */
+.notification-occurrence-delivery{
+  display:block;
+  margin-top:.2rem;
+  font-variant-numeric:tabular-nums;
+}
+.notification-occurrence-delivery__part--bad{
+  color:var(--ati-danger);
+  font-weight:700;
+}
+.notification-occurrence-delivery__part--warn{
+  color:var(--ati-warning);
+  font-weight:700;
+}
+/* The worker verdict, beside its timestamp rather than instead of it. */
+.notification-heartbeat{
+  align-self:center;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  padding:.2rem .7rem;
+  font-size:.78rem;
+  font-weight:800;
+  letter-spacing:.02em;
+  white-space:nowrap;
+}
+.notification-heartbeat--ok{
+  border-color:color-mix(in srgb,var(--ati-success) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-success) 12%,var(--ati-white));
+  color:var(--ati-success);
+}
+.notification-heartbeat--bad{
+  border-color:color-mix(in srgb,var(--ati-danger) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-danger) 12%,var(--ati-white));
+  color:var(--ati-danger);
+}
+.notification-heartbeat--muted{
+  color:var(--text-muted);
+}
+
+/*
+ * Committed jobs, inside the plan preview modal.
+ *
+ * The evidence for one job is dense — recipients, provider answer, message id, the
+ * frozen email — so it is collapsed by default and only one row opens at a time. A
+ * screen that showed all of it at once would be unreadable at fifty subscriptions.
+ */
+.committed-jobs{
+  display:flex;
+  flex-direction:column;
+  gap:.6rem;
+  padding:1rem 1.25rem 1.25rem;
+  border-top:1px solid var(--border-subtle);
+}
+.committed-jobs__header{
+  display:flex;
+  flex-direction:column;
+  gap:.15rem;
+}
+.committed-jobs__header span,
+.committed-jobs__empty{
+  color:var(--text-muted);
+  font-size:.86rem;
+}
+.committed-job{
+  border:1px solid var(--border-subtle);
+  border-radius:.7rem;
+  background:var(--ati-white);
+}
+.committed-job__row{
+  display:flex;
+  align-items:center;
+  gap:.9rem;
+  padding:.7rem .9rem;
+}
+.committed-job__identity{
+  display:flex;
+  flex-direction:column;
+  min-width:9rem;
+}
+.committed-job__identity span{
+  color:var(--text-muted);
+  font-size:.82rem;
+}
+.committed-job__facts{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+  gap:.1rem;
+  color:var(--text-muted);
+  font-size:.82rem;
+  min-width:0;
+}
+.committed-job__facts span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.committed-job__status{
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  padding:.15rem .6rem;
+  font-size:.74rem;
+  font-weight:800;
+  letter-spacing:.02em;
+  white-space:nowrap;
+}
+.committed-job__status--ok{
+  border-color:color-mix(in srgb,var(--ati-success) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-success) 12%,var(--ati-white));
+  color:var(--ati-success);
+}
+.committed-job__status--bad{
+  border-color:color-mix(in srgb,var(--ati-danger) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-danger) 12%,var(--ati-white));
+  color:var(--ati-danger);
+}
+.committed-job__status--warn{
+  border-color:color-mix(in srgb,var(--ati-warning) 38%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-warning) 12%,var(--ati-white));
+  color:var(--ati-warning);
+}
+.committed-job__detail{
+  display:grid;
+  gap:.8rem;
+  padding:0 .9rem .9rem;
+  border-top:1px solid var(--border-subtle);
+}
+.committed-attempt{
+  border:1px solid var(--border-subtle);
+  border-radius:.6rem;
+  padding:.6rem .75rem;
+  margin-top:.8rem;
+}
+.committed-attempt__head{
+  display:flex;
+  align-items:center;
+  gap:.7rem;
+  color:var(--text-muted);
+  font-size:.82rem;
+}
+.committed-attempt__facts{
+  display:grid;
+  grid-template-columns:minmax(8rem,auto) 1fr;
+  gap:.2rem .9rem;
+  margin:.55rem 0 0;
+  font-size:.84rem;
+}
+.committed-attempt__facts dt{
+  color:var(--text-muted);
+}
+.committed-attempt__facts dd{
+  margin:0;
+  overflow-wrap:anywhere;
+}
+.committed-attempt__mono{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:.78rem;
+  overflow-wrap:anywhere;
+}
+.committed-job__content-head{
+  display:flex;
+  flex-direction:column;
+  gap:.2rem;
+  margin-bottom:.5rem;
+}
+/* Alert history, under the open-alert list it complements. */
+.alert-history{
+  display:flex;
+  flex-direction:column;
+  gap:.7rem;
+  margin-top:1rem;
+  padding-top:1rem;
+  border-top:1px solid var(--border-subtle);
+}
+.alert-history .committed-jobs{
+  padding:0;
+  border-top:0;
+}
+.alert-history .committed-attempt__facts dd{
+  white-space:pre-wrap;
+}
+
+/* The delivery audit page: filters, status facets, then the same job rows. */
+.delivery-audit{
+  display:flex;
+  flex-direction:column;
+  gap:.9rem;
+  padding:1.25rem;
+}
+.delivery-audit__filters{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:end;
+  gap:.75rem;
+}
+.delivery-audit__filters input[type="search"]{
+  flex:1;
+  min-width:16rem;
+}
+.delivery-audit__filters label{
+  display:flex;
+  flex-direction:column;
+  gap:.2rem;
+  font-size:.8rem;
+  color:var(--text-muted);
+}
+.delivery-audit__hint{
+  margin:0;
+  color:var(--text-muted);
+  font-size:.82rem;
+}
+.delivery-audit__statuses{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.4rem;
+}
+.delivery-audit__status{
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
+  border:1px solid var(--border-subtle);
+  border-radius:999px;
+  padding:.25rem .7rem;
+  background:var(--ati-white);
+  color:var(--text-muted);
+  font-size:.78rem;
+  font-weight:700;
+  cursor:pointer;
+}
+.delivery-audit__status span{
+  font-variant-numeric:tabular-nums;
+  opacity:.75;
+}
+.delivery-audit__status--on{
+  border-color:color-mix(in srgb,var(--ati-blue) 45%,var(--border-subtle));
+  background:color-mix(in srgb,var(--ati-blue) 10%,var(--ati-white));
+  color:var(--ati-blue);
+}
+.delivery-audit__pagination{
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  color:var(--text-muted);
+  font-size:.84rem;
+}
+.delivery-audit .committed-jobs{
+  padding:0;
+  border-top:0;
+}
+
+/* The frozen body, at a height that shows the message without taking the modal over. */
+.committed-job__email{
+  width:100%;
+  height:22rem;
+  border:1px solid var(--border-subtle);
+  border-radius:.6rem;
+  background:var(--ati-white);
+}
 .notification-occurrence-regions .notification-occurrence-committed{
   border-color:color-mix(in srgb,var(--ati-success) 38%,var(--border-subtle));
   background:color-mix(in srgb,var(--ati-success) 12%,var(--ati-white));

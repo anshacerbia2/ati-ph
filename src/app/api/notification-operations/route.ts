@@ -46,6 +46,11 @@ export async function GET(): Promise<Response> {
             smtp.killSwitchActive,
           smtpCanExecuteAutomatically:
             smtp.canExecuteSmtpAutomatically,
+          workerEnabled:
+            env.NOTIFICATION_WORKER_ENABLED ===
+            "true",
+          workerPollIntervalMs:
+            env.WORKER_POLL_INTERVAL_MS,
         },
       ),
     );

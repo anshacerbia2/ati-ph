@@ -5,7 +5,35 @@ import {
   useState,
 } from "react";
 
+import { AlertHistory } from "@/components/ph-dashboard/AlertHistory";
 import { mountedPath } from "@/config/app";
+
+type WorkerHeartbeatState =
+  | "DISABLED"
+  | "NEVER_RUN"
+  | "HEALTHY"
+  | "LATE";
+
+const HEARTBEAT_LABEL: Record<
+  WorkerHeartbeatState,
+  string
+> = {
+  DISABLED: "Disabled",
+  NEVER_RUN: "Never run",
+  HEALTHY: "Healthy",
+  LATE: "Late",
+};
+
+function heartbeatClassName(
+  state: WorkerHeartbeatState,
+): string {
+  const base = "notification-heartbeat";
+  return state === "LATE" || state === "NEVER_RUN"
+    ? `${base} ${base}--bad`
+    : state === "DISABLED"
+      ? `${base} ${base}--muted`
+      : `${base} ${base}--ok`;
+}
 
 type OperationsOverview = {
   automation: {
@@ -27,6 +55,13 @@ type OperationsOverview = {
     lastDeliveryClaims: number;
     lastOpenAlertCount: number;
   } | null;
+  workerHeartbeat: {
+    state: WorkerHeartbeatState;
+    summary: string;
+    ageMs: number | null;
+    maximumAgeMs: number;
+    lastSuccessfulAt: string | null;
+  };
   jobs: Record<string, number>;
   alerts: {
     openCount: number;
@@ -173,6 +208,9 @@ export function TrustedAutomationOperations() {
               <div>
                 <strong>Worker heartbeat</strong>
                 <span>
+                  {overview.workerHeartbeat.summary}
+                </span>
+                <span>
                   Last success:{" "}
                   {formatDateTime(
                     overview.worker
@@ -186,6 +224,22 @@ export function TrustedAutomationOperations() {
                     : "No recorded worker error"}
                 </span>
               </div>
+              {/*
+                * The verdict, beside the timestamp rather than instead of it.
+                *
+                * `LATE` and `NEVER_RUN` are the two states that need somebody, so they
+                * are the only two that carry colour — the same rule the delivery rollup
+                * on the planning list follows, so colour keeps meaning "look here".
+                */}
+              <span
+                className={heartbeatClassName(
+                  overview.workerHeartbeat.state,
+                )}
+              >
+                {HEARTBEAT_LABEL[
+                  overview.workerHeartbeat.state
+                ]}
+              </span>
             </article>
 
             <article className="notification-occurrence-card">
@@ -294,6 +348,14 @@ export function TrustedAutomationOperations() {
               )}
             </div>
           )}
+
+          {/*
+            * The open list above answers "is anything wrong now". This answers the other
+            * question, which the panel could not: has this been happening. An alert used
+            * to vanish the moment it stopped firing, so a condition that recurred every
+            * week looked like nothing at all.
+            */}
+          <AlertHistory />
         </>
       ) : null}
     </section>

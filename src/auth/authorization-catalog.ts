@@ -192,6 +192,20 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
     sortOrder: 20,
   },
   {
+    /*
+     * Beside planning rather than under Administration: reading what was delivered is
+     * an operator's daily question, not a privileged configuration task. Same permission
+     * as the plan it reports on — anyone entitled to see who would be notified is
+     * entitled to see whether they were.
+     */
+    code: "deliveries",
+    label: "Deliveries",
+    path: "/deliveries",
+    parentCode: "public_holiday_operations",
+    requiredPermission: PERMISSIONS.NOTIFICATION_PLAN_READ,
+    sortOrder: 30,
+  },
+  {
     code: "administration",
     label: "Administration",
     sortOrder: 30,
