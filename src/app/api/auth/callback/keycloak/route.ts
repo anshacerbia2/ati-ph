@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "@/auth/access-token";
 import { openLoginState } from "@/auth/login-state";
 import {
+  browserUrl,
   getCallbackUrl,
   getLoginCookiePath,
   getOidcConfiguration,
@@ -16,7 +17,6 @@ import {
   readFirst,
   sessionCookieName,
 } from "@/auth/cookie-names";
-import { mountedPath } from "@/config/app";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
 
@@ -33,7 +33,10 @@ const claimsSchema = z
 export async function GET(request: NextRequest) {
   const providerError = request.nextUrl.searchParams.get("error");
   if (providerError) {
-    const loginPage = new URL(mountedPath("/login"), request.url);
+    // `browserUrl`, not `request.url` — see the note there. This is the branch the
+    // silent probe takes when nobody is signed in, so it runs on every framed load
+    // that has no session yet, which is the first one.
+    const loginPage = browserUrl("/login");
     loginPage.searchParams.set("reason", providerError);
     return NextResponse.redirect(loginPage);
   }
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
     });
 
     const returnUrl = new URL(loginState.returnTo, "http://ati-ph.local");
-    const destination = new URL(mountedPath(returnUrl.pathname), request.url);
+    const destination = browserUrl(returnUrl.pathname);
     destination.search = returnUrl.search;
     destination.hash = returnUrl.hash;
     const response = NextResponse.redirect(destination);
