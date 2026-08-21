@@ -124,6 +124,20 @@ Things that cost real time here. Check these before assuming your change is brok
   `Invalid parameter: redirect_uri`.
 - **Seed writes through Prisma and bypasses Zod.** That is why the delivery-test routing
   can set `automaticSendAllowed`. Do not use it as a general way around validation.
+- **`src/proxy.ts` is the middleware.** Next 16 deprecated `middleware.js` and renamed the
+  convention to `proxy.js`, exporting `proxy` instead of `middleware`. Looking for a
+  `middleware.ts` and concluding the rule 8 guard is unwired has already cost one
+  investigation; `src/__tests__/proxy-guard.test.ts` settles it. This is what the block at
+  the top of this file is warning about.
+- **Cookie names are a contract with the portal**, not a local choice. ATI One clears an
+  internal app's cookies at sign-out by matching
+  `/^(?:__Secure-|__Host-)?([a-z0-9][a-z0-9-]*)-app\./` — nothing asks, and there is no
+  registry. `ati_ph_session` did not match, so this app stayed signed in when everything
+  else signed out. `__Host-` is illegal here: it promises `Path=/`, and these cookies are
+  scoped to the mount path.
+- **Vitest aliases `server-only` to its own no-op.** Without it every module carrying that
+  marker fails at collection with a message naming "Client Component", and eighteen of
+  them do.
 
 ## Working on the UI
 

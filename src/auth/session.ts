@@ -13,7 +13,10 @@ import {
   TokenRefreshCoordinator,
   type RefreshOutcome,
 } from "@/auth/token-refresher";
-import { SESSION_COOKIE_NAME } from "@/config/app";
+import {
+  readFirst,
+  sessionCookieNames,
+} from "@/auth/cookie-names";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
 
@@ -80,7 +83,10 @@ export async function createSession(
 
 export async function getCurrentSession(): Promise<CurrentSession | null> {
   const cookieStore = await cookies();
-  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const sessionId = readFirst(
+    (name) => cookieStore.get(name)?.value,
+    sessionCookieNames(),
+  );
   if (!sessionId) {
     return null;
   }

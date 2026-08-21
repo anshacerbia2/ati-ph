@@ -8,7 +8,8 @@ import {
   getOidcConfiguration,
   oidc,
 } from "@/auth/oidc";
-import { LOGIN_COOKIE_NAME, safeReturnTo } from "@/config/app";
+import { loginCookieName } from "@/auth/cookie-names";
+import { safeReturnTo } from "@/config/app";
 import { getServerEnv } from "@/lib/env";
 
 export async function GET(request: NextRequest) {
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
       expiresAt: Date.now() + 10 * 60 * 1_000,
     });
     const response = NextResponse.redirect(authorizationUrl);
-    response.cookies.set(LOGIN_COOKIE_NAME, loginState, {
+    response.cookies.set(loginCookieName(), loginState, {
       httpOnly: true,
       secure: env.PUBLIC_APP_URL.startsWith("https://"),
       sameSite: "lax",

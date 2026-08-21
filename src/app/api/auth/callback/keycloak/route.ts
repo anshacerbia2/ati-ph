@@ -11,10 +11,12 @@ import {
 } from "@/auth/oidc";
 import { createSession } from "@/auth/session";
 import {
-  LOGIN_COOKIE_NAME,
-  SESSION_COOKIE_NAME,
-  mountedPath,
-} from "@/config/app";
+  loginCookieName,
+  loginCookieNames,
+  readFirst,
+  sessionCookieName,
+} from "@/auth/cookie-names";
+import { mountedPath } from "@/config/app";
 import { db } from "@/lib/db";
 import { getServerEnv } from "@/lib/env";
 
@@ -38,7 +40,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const env = getServerEnv();
-    const sealedState = request.cookies.get(LOGIN_COOKIE_NAME)?.value;
+    const sealedState = readFirst(
+      (name) => request.cookies.get(name)?.value,
+      loginCookieNames(),
+    );
     if (!sealedState) {
       return NextResponse.json({ error: "Missing login state." }, { status: 400 });
     }
@@ -102,14 +107,14 @@ export async function GET(request: NextRequest) {
     destination.search = returnUrl.search;
     destination.hash = returnUrl.hash;
     const response = NextResponse.redirect(destination);
-    response.cookies.set(SESSION_COOKIE_NAME, session.id, {
+    response.cookies.set(sessionCookieName(), session.id, {
       httpOnly: true,
       secure: env.PUBLIC_APP_URL.startsWith("https://"),
       sameSite: "lax",
       path: getLoginCookiePath(),
       expires: session.expiresAt,
     });
-    response.cookies.set(LOGIN_COOKIE_NAME, "", {
+    response.cookies.set(loginCookieName(), "", {
       httpOnly: true,
       secure: env.PUBLIC_APP_URL.startsWith("https://"),
       sameSite: "lax",

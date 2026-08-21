@@ -17,8 +17,18 @@ export const DEFAULT_APP_BASE_PATH = "/apps/ph-notification/app";
 export const APP_BASE_PATH =
   process.env.NEXT_PUBLIC_APP_BASE_PATH ?? DEFAULT_APP_BASE_PATH;
 
-export const SESSION_COOKIE_NAME = "ati_ph_session";
-export const LOGIN_COOKIE_NAME = "ati_ph_login";
+/**
+ * This application's product id in ATI One's catalogue.
+ *
+ * A constant rather than a derived value, because it is an identifier another system
+ * holds: it is the row in the portal's `products` table, the `<id>` in
+ * `/apps/<id>/app`, and — through `<id>-app.` — the prefix that lets the portal
+ * recognise this app's cookies when it signs somebody out. Changing it is registering a
+ * different product, not renaming a variable, so it should not quietly follow whatever
+ * `NEXT_PUBLIC_APP_BASE_PATH` happens to say.
+ */
+export const ATI_ONE_APP_ID = "ph-notification";
+
 export const PROXY_PROOF_HEADER = "x-ati-one-proxy";
 
 export function mountedPath(path = "/"): string {
