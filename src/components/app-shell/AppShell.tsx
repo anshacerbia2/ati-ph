@@ -101,6 +101,31 @@ function NavigationLink({
           : "app-local-nav-link"
       }
       href={item.path}
+      /*
+       * Prefetch off, because its prefetch never settles.
+       *
+       * Next asks for a route's RSC payload with an `_rsc` cache key derived from the
+       * request's routing headers. For two of these links the value the client sends is
+       * not the value the server computes, so the server answers 307 to the corrected
+       * URL, the client re-issues the original, and the pair repeats for as long as the
+       * page is open — measured at roughly forty requests a second against
+       * `/admin/client-routing` and `/admin/notification-policies`.
+       *
+       * Reproduced against ATI PH directly, with a valid session and no portal in the
+       * path, so it is neither the proxy nor rule 8. What it is, exactly, is Next's own
+       * prefetch negotiation, and nothing in this repository decides it.
+       *
+       * What this costs is a warmed cache on hover. Seven tabs, every page dynamic
+       * behind `connection()` in the layout, and an operator who reads far more than
+       * they click — so the saving was small and the loop was not. Actual navigation is
+       * untouched: it never used the prefetch, which is why the screens worked
+       * throughout.
+       *
+       * Remove this when a Next upgrade settles the negotiation, and confirm by
+       * watching the portal's `[internal-app]` log for a repeating 307/200 pair on one
+       * path. The log prints the query string, which is what makes the repeat visible.
+       */
+      prefetch={false}
     >
       {item.label}
     </Link>
