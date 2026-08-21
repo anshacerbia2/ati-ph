@@ -58,13 +58,68 @@ export function proxy(request: NextRequest) {
   }
 
   if (!validProxyProof(request)) {
-    return NextResponse.json(
-      { error: "Direct origin access is not allowed." },
-      { status: 403 },
-    );
+    return refuse(request);
   }
 
   return NextResponse.next();
+}
+
+const REFUSAL = "This app is reachable only through ATI One.";
+
+/**
+ * Says no in the language the caller asked in.
+ *
+ * A person who types this app's own address gets a browser, and a browser rendering
+ * `{"error":"Direct origin access is not allowed."}` reads as a broken deployment rather
+ * than as a boundary working. Anything not asking for HTML — an API client, a script, an
+ * asset request — keeps the JSON body it can act on.
+ *
+ * The wording is the contract's own, so somebody who searches for it finds
+ * `docs/INTERNAL-APPS.md` rule 8 rather than this file.
+ */
+function refuse(request: NextRequest): NextResponse {
+  const wantsHtml = (request.headers.get("accept") ?? "").includes(
+    "text/html",
+  );
+
+  if (!wantsHtml) {
+    return NextResponse.json({ error: REFUSAL }, { status: 403 });
+  }
+
+  return new NextResponse(
+    `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ATI Public Holiday Notification</title>
+<style>
+  body{margin:0;min-height:100vh;display:grid;place-items:center;
+       font:16px/1.6 system-ui,-apple-system,Segoe UI,sans-serif;
+       color:#1b2559;background:#f6f8fd}
+  main{max-width:32rem;padding:2rem;text-align:center}
+  h1{font-size:1.25rem;margin:0 0 .5rem}
+  p{margin:0;color:#5a6488}
+</style>
+</head>
+<body>
+<main>
+  <h1>${REFUSAL}</h1>
+  <p>Open it from the ATI One launcher. Reaching this address directly does not
+  carry the entitlement check that decides who may use this product.</p>
+</main>
+</body>
+</html>`,
+    {
+      status: 403,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        // Nothing about a refusal is worth keeping, and a cached one would outlive
+        // whatever configuration caused it.
+        "cache-control": "no-store",
+      },
+    },
+  );
 }
 
 export const config = {

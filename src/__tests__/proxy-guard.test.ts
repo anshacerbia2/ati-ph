@@ -26,10 +26,18 @@ import { proxy } from "@/proxy";
 
 const SECRET = "0123456789012345678901234567890123";
 
-function request(path: string, header?: string): NextRequest {
+function request(
+  path: string,
+  header?: string,
+  accept?: string,
+): NextRequest {
+  const headers: Record<string, string> = {};
+  if (header) headers[PROXY_PROOF_HEADER] = header;
+  if (accept) headers.accept = accept;
+
   return new NextRequest(
     new URL(mountedPath(path), "http://localhost:3005"),
-    { headers: header ? { [PROXY_PROOF_HEADER]: header } : undefined },
+    { headers },
   );
 }
 
@@ -95,6 +103,35 @@ describe("ATI One proxy guard", () => {
      */
     process.env.TRUST_ATI_ONE_PROXY = "false";
     expect(proxy(request("/")).status).toBe(200);
+  });
+
+  it("tells a person what to do, in a page they can read", async () => {
+    /*
+     * Somebody who types this app's own address gets a browser, and a browser rendering
+     * a JSON error object reads as a broken deployment rather than as a boundary doing
+     * its job. The wording is the contract's, so searching for it finds rule 8.
+     */
+    const response = proxy(
+      request("/", undefined, "text/html,application/xhtml+xml"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    await expect(response.text()).resolves.toContain(
+      "reachable only through ATI One",
+    );
+  });
+
+  it("keeps answering JSON to anything that did not ask for a page", async () => {
+    const response = proxy(request("/api/health", undefined, "*/*"));
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("content-type")).toContain(
+      "application/json",
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      error: expect.stringContaining("ATI One"),
+    });
   });
 
   it("refuses when trust is on and no secret is configured", () => {
