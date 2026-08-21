@@ -467,6 +467,222 @@ async function seedClientMasterRouting(): Promise<void> {
 }
 
 
+/**
+ * A single routing row whose recipient is a real, deliverable ATI mailbox.
+ *
+ * ## Why this exists
+ *
+ * Every one of the 140 seeded `Client_Master` contacts is `@dummy.test`, which is
+ * correct — none of them may receive anything. But it also means the estate has no
+ * way to prove a send *succeeded*: `classifyEmailTransportOutcome` is fail-closed
+ * on partial acceptance, so one undeliverable recipient marks the whole job
+ * `FAILED`, and a job made entirely of `@dummy.test` can only ever demonstrate that
+ * SMTP rejects correctly. That is worth knowing and is not the same as delivery.
+ *
+ * So this seeds one subscription whose recipients are exactly one deliverable
+ * address, in region **SG** — chosen because `Client_Master` puts no subscription
+ * there, so a Singapore holiday fans out to this row and nothing else. A holiday
+ * imported for any other region cannot reach it.
+ *
+ * ## Absent unless an address is configured
+ *
+ * No address, no rows. A fresh install gets the estate it had before this existed,
+ * rather than a stray client named `Test` that nobody asked for. The address falls
+ * back to `EMAIL_SMTP_PILOT_RECIPIENT` because that variable already means "the one
+ * internal mailbox delivery testing may reach", and two variables naming the same
+ * mailbox is one variable too many.
+ *
+ * ## `automaticSendAllowed: true`, and why it is only here
+ *
+ * `notificationPolicySchema` refuses this outright — *"Automatic send cannot be
+ * enabled before the controlled delivery phase"* — so no API call, admin screen or
+ * UI toggle can produce a job the worker will claim. That refusal is deliberate and
+ * stays. This seed writes through Prisma and is therefore the one path around it,
+ * which is exactly why it is confined to a row that (a) exists only when an address
+ * is configured, and (b) can reach only that address.
+ *
+ * **It does not make anything send.** Two independent env gates still stand in
+ * front of every SMTP execution — `EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED` defaults
+ * to false and `EMAIL_DELIVERY_KILL_SWITCH` defaults to *true* — and both must be
+ * changed deliberately. See `resolveEmailAutomaticDeliveryRelease`.
+ */
+async function seedDeliveryTestRouting(): Promise<void> {
+  const recipientEmail = (
+    process.env.DELIVERY_TEST_RECIPIENT ??
+    process.env.EMAIL_SMTP_PILOT_RECIPIENT ??
+    ""
+  ).trim();
+
+  if (!recipientEmail) {
+    console.info(
+      "Delivery-test routing skipped: neither DELIVERY_TEST_RECIPIENT nor EMAIL_SMTP_PILOT_RECIPIENT is set.",
+    );
+    return;
+  }
+
+  const region = await db.calendarRegion.findFirst({
+    where: { code: "SG" },
+    select: { id: true },
+  });
+
+  if (!region) {
+    throw new Error(
+      "Delivery-test routing needs calendar region SG, which seedCalendarRegions should have created.",
+    );
+  }
+
+  const clientName = "Test";
+  const normalizedClientName = normalizeClientName(clientName);
+  const client = await db.client.upsert({
+    where: { normalizedName: normalizedClientName },
+    create: {
+      name: clientName,
+      normalizedName: normalizedClientName,
+      isActive: true,
+    },
+    update: {},
+    select: { id: true },
+  });
+
+  const normalizedTeamName = normalizeServiceTeamName(clientName);
+  const team = await db.serviceTeam.upsert({
+    where: {
+      clientId_normalizedName: {
+        clientId: client.id,
+        normalizedName: normalizedTeamName,
+      },
+    },
+    create: {
+      clientId: client.id,
+      name: clientName,
+      normalizedName: normalizedTeamName,
+      isActive: true,
+    },
+    update: {},
+    select: { id: true },
+  });
+
+  let subscription = await db.clientSubscription.findFirst({
+    where: { serviceTeamId: team.id, calendarRegionId: region.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+
+  subscription ??= await db.clientSubscription.create({
+    data: {
+      serviceTeamId: team.id,
+      calendarRegionId: region.id,
+      isActive: true,
+    },
+    select: { id: true },
+  });
+
+  const policy = await db.notificationPolicy.upsert({
+    where: { clientSubscriptionId: subscription.id },
+    create: { clientSubscriptionId: subscription.id, isActive: true },
+    update: {},
+    select: { id: true },
+  });
+
+  const existingVersion = await db.notificationPolicyVersion.findFirst({
+    where: { notificationPolicyId: policy.id },
+    orderBy: { version: "desc" },
+    select: { id: true },
+  });
+
+  if (!existingVersion) {
+    await db.notificationPolicyVersion.create({
+      data: {
+        notificationPolicyId: policy.id,
+        version: 1,
+        holidayDayFilter: "ALL",
+        /*
+         * `CLIENT_OVERRIDE` rather than `GLOBAL`, for one reason that matters: the
+         * global policy is `approvalMode: REQUIRED`, and its maker-checker refuses
+         * an approver who is also the committer. A single operator testing delivery
+         * would need a second person for a step that proves nothing about SMTP. The
+         * lead time, send time and timezone below are copied from the global policy
+         * so the schedule arithmetic is unchanged; only the approval gate differs.
+         */
+        scheduleSource: "CLIENT_OVERRIDE",
+        leadTimeValue: 5,
+        leadTimeMode: "CALENDAR_DAY",
+        sendTimeLocal: "09:00",
+        timezone: "Australia/Sydney",
+        weekendAdjustment: "NONE",
+        businessDayHolidayMode: "UNCONFIRMED",
+        approvalMode: "NOT_REQUIRED",
+        automaticSendAllowed: true,
+        retryCeiling: null,
+        isActive: true,
+        changeReason:
+          "Delivery-test routing: the one policy permitted to auto-send, to a single internal mailbox, behind two env kill-switches.",
+      },
+    });
+  }
+
+  const normalizedEmail = normalizeContactEmail(recipientEmail);
+  const contact = await db.contact.upsert({
+    where: {
+      clientId_normalizedEmail: {
+        clientId: client.id,
+        normalizedEmail,
+      },
+    },
+    create: {
+      clientId: client.id,
+      displayName: null,
+      email: recipientEmail,
+      normalizedEmail,
+      isActive: true,
+    },
+    update: {},
+    select: { id: true },
+  });
+
+  await db.subscriptionRecipient.upsert({
+    where: {
+      subscriptionId_contactId: {
+        subscriptionId: subscription.id,
+        contactId: contact.id,
+      },
+    },
+    create: {
+      subscriptionId: subscription.id,
+      contactId: contact.id,
+      recipientType: "TO",
+      isActive: true,
+    },
+    update: {},
+  });
+
+  /*
+   * TO and nothing else, and the check is worth the query.
+   *
+   * A CC picked up from somewhere else — a hand-added row, a future seed — would be
+   * `@dummy.test`, Gmail would refuse it, and fail-closed classification would mark
+   * the job FAILED with the real recipient having received the mail anyway. That
+   * reads as "delivery is broken" and is the most misleading outcome this row can
+   * produce, so it fails loudly here instead.
+   */
+  const foreign = await db.subscriptionRecipient.findMany({
+    where: { subscriptionId: subscription.id, contactId: { not: contact.id } },
+    select: { contact: { select: { email: true } } },
+  });
+
+  if (foreign.length > 0) {
+    throw new Error(
+      `Delivery-test subscription must have exactly one recipient; also found ${foreign
+        .map((row) => row.contact.email)
+        .join(", ")}.`,
+    );
+  }
+
+  console.info(
+    `Delivery-test routing ready: client "${clientName}", region SG, single TO recipient ${recipientEmail}, auto-send permitted (still gated by EMAIL_DELIVERY_KILL_SWITCH and EMAIL_SMTP_AUTOMATIC_DELIVERY_ENABLED).`,
+  );
+}
+
 async function seedGlobalNotificationSchedule(): Promise<void> {
   const policy = await db.notificationSchedulePolicy.upsert({
     where: { scopeKey: "GLOBAL" },
@@ -525,6 +741,7 @@ async function main(): Promise<void> {
   await seedAuthorization();
   await seedCalendarRegions();
   await seedClientMasterRouting();
+  await seedDeliveryTestRouting();
   await seedGlobalNotificationSchedule();
   await seedMissingNotificationPolicyShells();
   console.info("ATI PH authorization, calendar-region, client-routing, global notification schedule, and notification-policy bootstrap complete.");
