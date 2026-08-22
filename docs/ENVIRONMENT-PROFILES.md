@@ -82,9 +82,30 @@ fifty-one. If you ever see that shape again — server pages fine, client fetche
 check this before anything else.
 
 The HMR socket still cannot work: it addresses the portal, and an HTTP route handler
-cannot carry a WebSocket upgrade. That costs hot reload **inside the frame** and nothing
-else — edit and refresh by hand. If that becomes annoying, `npm run build && npm start`
-serves a production build on the same port with no socket at all.
+cannot carry a WebSocket upgrade. Its client then retries forever, which is why running
+mounted is done with `npm run build && npm start` — a production build carries no HMR
+client at all, so nothing retries. The cost is one build per change; `next dev` mounted
+trades that for a permanent reconnect loop.
+
+### Two failures that belong to the portal, not to this app
+
+Both were chased here first and neither is fixable here. If you meet them, say so to the
+ATI One team rather than changing anything in this repository.
+
+**Sign-out appears to do nothing, locally only.** The portal's sign-out is a form POST
+whose redirect chain ends at Keycloak, and Chrome applies `form-action` to every hop of
+that chain. In production the realm is served under the portal's own hostname and `'self'`
+covers it; on localhost the two are different origins and the submission never leaves the
+browser — nothing reaches any server, the cookie survives, and the button looks inert. The
+portal needs `DEV_REALM_ORIGIN` set; the same variable is why the frame works at all.
+
+**One path repeats `307`/`200` tens of times a second.** Next's `_rsc` cache key is a hash
+of four routing headers, and a client can hash a header set it then does not send — this
+app answers `307` to the corrected URL, the router re-issues the original, and the pair
+repeats for as long as the tab is open. The portal's proxy realigns the key now. It reads
+only and breaks nothing, which is exactly what makes it hard: every request succeeds, and
+the only evidence is volume. `AGENTS.md` records the seven explanations that were wrong
+before this one was right.
 
 ### Local — why the worker is off
 
