@@ -154,8 +154,16 @@ Things that cost real time here. Check these before assuming your change is brok
   and across the whole session**, so they are router-state hashes rather than anything
   derived from the build; and the looping route **follows whatever page is open**, so it
   is the router reconciling the route it is already on, not speculating about routes it
-  might visit. The untested hypothesis is `basePath` — build once with
-  `NEXT_PUBLIC_APP_BASE_PATH=` empty and see whether RSC requests still answer `307`.
+  might visit.
+
+  `basePath` was the obvious next suspect and it is **not** the cause either. Built and
+  served once with `NEXT_PUBLIC_APP_BASE_PATH=` empty at the origin root: RSC requests
+  still answer `307` to `?_rsc`, including requests that already carry an `_rsc` value.
+  Identical behaviour mounted and unmounted, so the redirect is unconditional in Next
+  16.3.1 rather than something this app's mount path provokes. That the redirect is
+  unconditional is the next thing to explain — every route answers it, including ones
+  that never loop, so the redirect alone is not the loop and the question is what makes
+  the client re-issue a *stale* key rather than follow the corrected one.
 
   Closing the tab stops it, because it is driven entirely by the client.
 - **`redirect_uri` is the address the browser uses**, prefix and all — never the address
