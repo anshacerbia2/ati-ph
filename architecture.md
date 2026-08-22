@@ -11,7 +11,7 @@
 | Initial deployment model | Independently deployed web application and worker, mounted by ATI One as an internal iframe application |
 | Canonical production browser URL | `https://one.atibusinessgroup.com/apps/ph-notification/app` |
 | Canonical store | PostgreSQL |
-| Identity provider | Keycloak realm `ati-one`, temporarily reusing the ATI One Keycloak client ID |
+| Identity provider | Keycloak realm `ati-one`, ATI PH's own client `ph-notif` |
 
 ## 1. Architectural Decision
 
@@ -29,7 +29,7 @@ No paid email provider is a mandatory architecture dependency
 
 The Public Holiday codebase, database, worker, authorization rules, and business operations remain independently owned. Its initial browser delivery is through ATI One's internal same-origin proxy and iframe path. ATI One does not participate in Public Holiday business logic, but it is the initial browser entry point and delivery gateway
 
-As an explicit temporary exception, `ati-ph` uses the same Keycloak client ID and client credential configuration as ATI One. It still creates its own namespaced application session. Keycloak is the identity and authentication authority only: ATI PH does not derive business authorization from Keycloak realm roles. Application roles, permissions, and menu visibility are resolved from ATI PH-owned PostgreSQL records. The role-permission catalog, maker-checker rules, and application access-control invariants are documented in [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md). This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
+`ati-ph` has its own Keycloak client, `ph-notif`, and its own namespaced application session. It borrowed ATI One's client until 2026-08-21 — see 13.5 for what that cost and what it did not. Keycloak is the identity and authentication authority only: ATI PH does not derive business authorization from Keycloak realm roles. Application roles, permissions, and menu visibility are resolved from ATI PH-owned PostgreSQL records. The role-permission catalog, maker-checker rules, and application access-control invariants are documented in [docs/ACCESS-CONTROL.md](docs/ACCESS-CONTROL.md). This exception is documented for later separation and must not be interpreted as permission to reuse ATI One cookies or application authorization state
 
 ## 1.1 Implementation snapshot — 2026-08-20
 
@@ -107,7 +107,7 @@ The holiday calendar, holiday matching, and holiday correction rules are not reu
 flowchart TD
     U["Operator, Approver, Administrator, Auditor"] --> WEB["Next.js 16 Web Application"]
     WEB --> AUTH["Server-side Authentication and Authorization"]
-    AUTH --> KC["Keycloak realm: ati-one / shared ATI One client ID"]
+    AUTH --> KC["Keycloak realm: ati-one / client: ph-notif"]
     WEB --> APP["Public Holiday Workflow Module"]
     APP --> IMP["Governed Import Module"]
     APP --> APR["Approval Module"]
@@ -725,7 +725,7 @@ Do not place these inside a generic workflow or rule engine
 
 | Dependency | Boundary | Initial requirement |
 | --- | --- | --- |
-| Enterprise IdP | Keycloak OIDC authentication | Realm `ati-one`; shared ATI One client ID as a temporary exception; exact mounted callback and logout URIs |
+| Enterprise IdP | Keycloak OIDC authentication | Realm `ati-one`; ATI PH's own client `ph-notif`; exact mounted callback URIs |
 | ATI One internal-app proxy | Browser delivery and upstream proof | Same-origin iframe mount, `/apps/ph-notification/app` base path, and validated proxy header on every non-static application request |
 | Outbound email providers | Email Delivery Engine | Generic SMTP first, runtime provider registry and routing, optional provider-specific adapters |
 | Object storage | Artifact adapter | Immutable file storage and controlled retrieval |
@@ -737,11 +737,11 @@ Do not place these inside a generic workflow or rule engine
 - `ati-ph` owns its authentication session and authorization decisions
 - ATI One application cookies, access tokens, refresh tokens, and product entitlements are never reused as an `ati-ph` session or authorization decision
 - `ati-ph` temporarily uses the same Keycloak client ID and client credential configuration as ATI One because ATI One is the only initial browser entry point
-- The shared-client exception is limited to the OIDC relying-party registration; `ati-ph` still owns its session records, cookie namespace, user-role mapping, and audit trail
+- `ati-ph` owns its Keycloak client `ph-notif`, its session records, its cookie namespace, its user-role mapping, and its audit trail. It borrowed the portal's client until 2026-08-21; see 13.5
 - Authorization Code Flow uses PKCE S256, state, nonce, exact redirect URIs, and server-side code exchange
 - Before any user or session write, the returned access token must pass RS256 signature verification against the realm JWKS, issuer and expiry validation, `typ === "Bearer"`, and `azp === KEYCLOAK_CLIENT_ID`; a missing claim is rejected rather than inferred
 - Implicit flow and resource-owner password or direct-access grants are disabled
-- The browser stores only an opaque `ati_ph_session` identifier in a `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookie
+- The browser stores only an opaque `__Secure-ph-notification-app.session` identifier in a `Secure`, `HttpOnly`, `SameSite=Lax`, host-only cookie
 - Keycloak token material is never exposed to browser JavaScript and is encrypted at rest when retained for refresh or logout
 - Keycloak claim `sub` is the stable external identity key; email is mutable profile data, not a primary identifier
 - Keycloak authenticates the user; application roles and permissions are resolved by `ati-ph` from its own database or an explicitly approved group-to-role mapping
@@ -775,7 +775,7 @@ sequenceDiagram
     PH->>KC: Resolve cached realm JWKS when required
     PH->>PH: Verify signature, issuer, expiry, typ=Bearer, and azp=client ID
     PH->>DB: Upsert user and create encrypted server-side session
-    PH-->>B: Set opaque ati_ph_session cookie and redirect
+    PH-->>B: Set opaque __Secure-ph-notification-app.session cookie and redirect
 ```
 
 If the browser already has an SSO session in the `ati-one` realm, Keycloak completes the authorization flow without asking for credentials again. For the initial implementation, the client ID and client credential are shared by explicit project decision. The protocol flow remains a separate authorization request and callback for `ati-ph`; ATI One does not pass its token or cookie into the iframe. The callback validates the ID-token protocol claims through `openid-client` and independently verifies the access token before it can influence persistence or session creation
@@ -807,26 +807,36 @@ ATI One is the initial browser entry point and renders `ati-ph` through its inte
 The `ati-ph` side must preserve these invariants:
 
 - public routes, assets, callbacks, and logout endpoints work under `/apps/ph-notification/app`
-- `ati-ph` uses namespaced cookies such as `ati_ph_session` and never reads or writes `ati_one_*`
+- `ati-ph` uses namespaced cookies such as `__Secure-ph-notification-app.session` and never reads or writes `ati_one_*`
 - no ATI One application token or cookie is passed into or interpreted by `ati-ph`
 - the private upstream is not treated as an alternative browser entry point
 - every non-static application request validates the configured ATI One proxy proof when `TRUST_ATI_ONE_PROXY=true`, including health routes
 - framing headers allow the approved same-origin ATI One parent and do not allow arbitrary framing origins
 - a missing Keycloak SSO session escapes the iframe for top-level authentication and returns to the mounted application path
 
-### 13.5 Temporary shared-client exception
+### 13.5 The shared-client exception, and its retirement on 2026-08-21
 
-Reusing the ATI One Keycloak client means the two applications share client-level redirect URI policy, credential rotation impact, token `azp`, and incident blast radius. These consequences are accepted for the initial internal-only delivery and recorded rather than hidden
+`ati-ph` has its **own** Keycloak client, `ph-notif`, in realm `ati-one`. It registers the
+mounted production callback and the localhost one used for development, and nothing else.
 
-The exception must be revisited before any of the following:
+This section recorded a temporary exception: the application borrowed `ati-one-portal`,
+the portal's own client. The consequences were written down rather than hidden — shared
+redirect-URI policy, shared credential-rotation impact, a token `azp` that named the
+portal for both applications, and one incident blast radius covering two products. The
+exception was to be revisited before `ati-ph` gained an entry point outside ATI One,
+before either application needed independent rotation, and before any security review
+that required unambiguous relying-party attribution.
 
-- `ati-ph` gains a browser entry point outside ATI One
-- the application is operated by a different credential-owning team
-- client-specific token audience or policy must distinguish ATI One from Public Holiday
-- either application requires independent secret rotation or incident containment
-- security review requires unambiguous relying-party attribution
+All three arrived at once. Retiring it cost what was predicted and no more: the client id
+and secret in each environment profile, and the callback URIs registered on the new
+client. No user id, application role, domain row or session record changed — which is the
+claim this section made in advance, and it held.
 
-Separation later creates a dedicated `ati-ph` Keycloak client and changes environment configuration plus registered callback/logout URIs. It does not change `ati-ph` user IDs, application roles, domain data, or server-side session design
+The residue is worth knowing. Production and local development share `ph-notif`, because
+they share the realm; only the test profile has a realm of its own. So a developer's `.env`
+holds the production client secret, and rotating it after a lost laptop would sign out
+production at the same moment. A second client scoped to localhost would separate them,
+and is not done.
 
 ## 14. Decision Summary
 
@@ -836,7 +846,7 @@ Separation later creates a dedicated `ati-ph` Keycloak client and changes enviro
 | Web platform | Next.js 16.3.1 App Router and React 19 |
 | Background processing | Dedicated worker process from the same repository |
 | Identity realm | Existing Keycloak realm `ati-one` |
-| Identity client | Shared ATI One Keycloak client ID and credential as an explicit temporary exception |
+| Identity client | `ph-notif`, owned by `ati-ph`. Borrowed the portal's client until 2026-08-21 |
 | Session model | Opaque host-only cookie and encrypted server-side database session |
 | Authorization source | `ati-ph` database roles, with optional explicit Keycloak group mapping |
 | ATI One integration | Initial browser entry point and delivery gateway; no Public Holiday business logic ownership |

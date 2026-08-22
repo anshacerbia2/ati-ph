@@ -2,34 +2,50 @@
 
 | Metadata | Value |
 | --- | --- |
-| Status | Refresh/revocation foundation implemented; cross-application logout remains future work |
-| Date | 2026-08-15 |
+| Status | Refresh/revocation foundation implemented; **dedicated client done 2026-08-21**; back-channel logout remains future work |
+| Date | 2026-08-15, revised 2026-08-23 |
 | Scope | ATI PH authentication lifecycle and cross-application logout |
-| Current client | Shared Keycloak client `ati-one-portal` |
-| Target client | Dedicated Keycloak client owned by ATI PH |
+| Current client | `ph-notif` — ATI PH's own Keycloak client |
+| Session cookie | `__Secure-ph-notification-app.session` over https |
 
 ## Purpose
 
-ATI PH currently reuses the ATI One Keycloak client as an explicit temporary
-decision. It still owns a separate database-backed session and the
-`ati_ph_session` cookie. This is sufficient for authentication and local logout,
-but it is not a complete single-logout design.
+**Two things this document described as future work are now done**, and the rest of it
+still stands. Read this section before the ones below, which are written against the
+older arrangement wherever they have not been corrected.
 
-This document records the known limitation and the preferred future design so a
-working temporary implementation is not mistaken for the final security model.
+ATI PH has its **own** Keycloak client, `ph-notif`. It previously reused
+`ati-one-portal`, the portal's client, as an explicit temporary decision — and that
+borrowing is the thing this document was written to make sure nobody mistook for the
+final design. It worked, which was the danger: every redirect URI ATI PH needed had to be
+added to the portal's client, rotating either secret signed out both, and the realm's logs
+could not tell the two applications apart because `azp` named the portal for each.
+
+The session cookie was renamed from `ati_ph_session` to
+`__Secure-ph-notification-app.session`. That is not cosmetic and not a local choice: ATI
+One clears an internal app's cookies at sign-out by matching
+`/^(?:__Secure-|__Host-)?([a-z0-.][a-z0-.-]*)-app\./` against the cookie header, with
+nothing asking the app and no registry to consult. The old name did not match, so ATI PH
+stayed signed in while every other application signed out — a single-logout failure that
+reported success everywhere. `__Host-` is illegal here because it forces `Path=/`, and
+these cookies are scoped to the mount path.
+
+What remains future work is **back-channel logout**: Keycloak notifying ATI PH when a
+session ends elsewhere. Until that exists, the portal's cookie-clearing at sign-out is
+what carries it, which is why the cookie name is a contract rather than a preference.
 
 ## Current behavior
 
 ### Sign-in
 
-1. ATI PH checks its own `ati_ph_session` cookie and database session.
+1. ATI PH checks its own `__Secure-ph-notification-app.session` cookie and database session.
 2. If no valid application session exists, ATI PH starts an OIDC Authorization
    Code Flow with state, nonce, and PKCE.
 3. Keycloak may reuse its existing realm SSO session.
 4. ATI PH validates the callback and token set, then creates its own session.
 
-ATI One does not pass its cookie or token to ATI PH. The applications share an
-OIDC client registration temporarily, not an application session.
+ATI One does not pass its cookie or token to ATI PH. Each application has its own OIDC
+client registration and its own session; neither has ever shared the other's session.
 
 ### Local ATI PH logout
 
@@ -67,13 +83,15 @@ ATI One performs RP-initiated logout and asks Keycloak to end the SSO session
 using an ID token hint. ATI One also clears internal-app cookies that match its
 cookie naming convention.
 
-The current ATI PH cookie does not follow that convention. More importantly,
-clearing a browser cookie alone cannot revoke the corresponding ATI PH database
-session. If the ATI PH application session is still valid, ATI PH does not
-contact Keycloak on every request and can continue accepting that session after
-the Keycloak SSO session has ended.
+The ATI PH cookie now follows that convention — it did not, and the consequence was that
+ATI PH stayed signed in while everything else signed out.
 
-This is the known single-logout gap.
+That closes the browser half and not the server half. Clearing a cookie cannot revoke the
+corresponding ATI PH **database** session: if that session is still valid, and ATI PH does
+not contact Keycloak on every request, a restored or copied cookie would still be accepted
+after the Keycloak SSO session has ended.
+
+This is the remaining single-logout gap, and it is what back-channel logout closes.
 
 ## Target behavior
 
@@ -113,10 +131,14 @@ database session even when the user's browser is closed.
 Front-channel logout can remain an optional compatibility mechanism, but it
 must not be the only server-side revocation control.
 
-## Dedicated-client prerequisite
+## Dedicated-client prerequisite — **met, 2026-08-21**
 
-The preferred production model gives ATI PH its own Keycloak client, for
-example `ati-ph-app`. That client owns its own:
+This section described the prerequisite for back-channel logout. It is done: the client is
+`ph-notif`, registered in realm `ati-one`, with the mounted production and localhost
+callbacks and nothing else. The rest of the section stands as the statement of what a
+dedicated client is *for*.
+
+ATI PH has its own Keycloak client. That client owns its own:
 
 - Client secret and rotation lifecycle
 - Redirect URI allow-list
@@ -125,10 +147,10 @@ example `ati-ph-app`. That client owns its own:
 - Token `azp`, audience, and policy
 - Incident and revocation boundary
 
-The shared `ati-one-portal` client makes relying-party attribution and logout
-endpoint ownership ambiguous. It is acceptable only as a time-bounded internal
-exception. A dedicated client should be created before relying on Keycloak to
-deliver independent logout notifications to ATI PH.
+Borrowing `ati-one-portal` made relying-party attribution and logout-endpoint ownership
+ambiguous: Keycloak cannot deliver a logout notification to "whichever application is
+using the portal's client". That is why this had to be settled before back-channel logout
+could be built, and why it is no longer a blocker.
 
 ## Proposed implementation
 
@@ -167,7 +189,7 @@ The endpoint must:
 6. Reject a token containing `nonce`.
 7. Prevent replay using `jti` for the token's usable lifetime.
 8. Revoke matching ATI PH sessions idempotently.
-9. Return a generic response without exposing whether a user or session existed.
+.. Return a generic response without exposing whether a user or session existed.
 
 No user account, holiday data, audit history, or application role is deleted by
 a logout notification.
@@ -192,7 +214,7 @@ Refresh refusal and verified logout notification both revoke the local session.
 7. Separate **Sign out of ATI PH** from **Sign out everywhere** in the UI.
 8. Run end-to-end tests initiated from ATI PH, ATI One, Keycloak administration,
    and another relying party.
-9. Remove the shared-client exception after migration evidence is accepted.
+.. Remove the shared-client exception after migration evidence is accepted.
 
 ## Acceptance criteria
 

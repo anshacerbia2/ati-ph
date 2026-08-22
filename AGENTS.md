@@ -24,6 +24,12 @@ one, find out what.
 | What does the workbook contract accept? | [`docs/GOVERNED-IMPORT-CONTRACT.md`](docs/GOVERNED-IMPORT-CONTRACT.md) |
 | Why is the system shaped this way? | [`architecture.md`](architecture.md) |
 | What is deliberately not built yet? | [`plan.md`](plan.md) |
+| **How do I deploy this to production?** | [`docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md`](docs/PRODUCTION-DEPLOYMENT-AI-AGENT.md) |
+
+That last one is the procedure, written for an agent that has never seen this repository.
+Read it end to end before touching a production host: it stops at every value it cannot
+know rather than inferring one, and the ordering in it is load-bearing — enabling the
+proxy guard before the portal holds the matching secret takes the application dark.
 
 ## The rule that matters most
 

@@ -112,12 +112,12 @@ See:
 ## Authentication boundary
 
 - Keycloak proves identity
-- ATI PH creates its own database-backed `ati_ph_session`
+- ATI PH creates its own database-backed `__Secure-ph-notification-app.session`
 - ATI PH does not consume ATI One cookies or application authorization state
 - Keycloak is not the source of ATI PH business roles
 - ATI PH roles and permissions live in PostgreSQL
 - Logout currently ends the ATI PH local session only
-- The shared ATI One Keycloak client remains a temporary internal-app decision
+- ATI PH has its own Keycloak client, `ph-notif`
 
 The future dedicated-client and single-logout direction is documented in `docs/FUTURE-SINGLE-LOGOUT.md`.
 

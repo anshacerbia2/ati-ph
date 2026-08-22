@@ -47,7 +47,7 @@ The deploy agent must receive these values from the deployment owner before star
 RELEASE_SHA
 production repository/worktree path
 production PostgreSQL connection
-approved production Keycloak client credential
+approved production Keycloak client credential   for client `ph-notif`
 SESSION_SECRET
 ATI_ONE_PROXY_SECRET
 ARTIFACT_STORAGE_DIR
@@ -55,6 +55,18 @@ private web bind address/PORT
 existing process supervisor or service manager
 ATI One proxy/upstream configuration owner
 ```
+
+Three of those are shared with a deployment this agent does not perform. ATI One's own
+`backend/.env` must carry the private address of this app and the same proxy secret, and
+its catalogue row is written by its seed rather than by hand:
+
+```text
+ATI_ONE_PH_NOTIFICATION_UPSTREAM        http(s) origin, no path, private address
+ATI_ONE_PH_NOTIFICATION_PROXY_SECRET    identical to ATI_ONE_PROXY_SECRET here
+```
+
+Confirm with the portal's deployment owner that both are set **before** enabling
+`TRUST_ATI_ONE_PROXY`. Enabling it first is the ordering that takes the app dark.
 
 For production SMTP activation, the agent additionally requires explicit evidence that all production email gates are approved
 
@@ -127,7 +139,7 @@ OIDC_CALLBACK_URL=https://one.atibusinessgroup.com/apps/ph-notification/app/api/
 
 DATABASE_URL=<PRODUCTION_DATABASE_URL>
 KEYCLOAK_ISSUER=https://one.atibusinessgroup.com/auth/realms/ati-one
-KEYCLOAK_CLIENT_ID=ati-one-portal
+KEYCLOAK_CLIENT_ID=ph-notif
 KEYCLOAK_CLIENT_SECRET=<PRODUCTION_KEYCLOAK_CLIENT_SECRET>
 SESSION_SECRET=<PRODUCTION_SESSION_SECRET>
 
@@ -138,7 +150,19 @@ ATI_ONE_RETURN_URL=https://one.atibusinessgroup.com/
 ARTIFACT_STORAGE_DIR=/var/lib/ati-ph/artifacts
 ```
 
-`NEXT_PUBLIC_APP_BASE_PATH` is a build-time input and must be correct before `npm run verify` / `npm run build`
+`KEYCLOAK_CLIENT_ID` is **`ph-notif`**, this application's own client. This line said
+`ati-one-portal` — the *portal's* client — and that value is the dangerous kind of wrong,
+because it works. Tokens come back and people sign in, and from then on ATI PH issues
+sessions under an identity that belongs to another application: every redirect URI this
+app needs has to be added to the portal's client, rotating either secret signs out both,
+and the realm's own logs cannot tell the two apart afterwards because `azp` says
+`ati-one-portal` for each. Verify the client id against `.env.production.example` before
+materializing anything.
+
+`NEXT_PUBLIC_APP_BASE_PATH` is a build-time input and must be correct before `npm run verify` / `npm run build`. It is
+inlined into the client bundle, so setting it in the deployment platform's environment has
+no effect at all — a container started with the right value and built with the wrong one
+serves an app whose every asset path is wrong, and the failure looks like a broken proxy.
 
 The artifact directory must exist on durable protected storage and be writable by the ATI PH runtime identity
 
@@ -231,15 +255,44 @@ The ATI One proxy must
 
 With `TRUST_ATI_ONE_PROXY=true`, application requests that reach ATI PH without the correct `x-ati-one-proxy` proof are rejected
 
-This includes health routes because the current `src/proxy.ts` matcher protects all non-static application requests
+**Both sides or neither.** `ATI_ONE_PROXY_SECRET` in ATI PH's environment must equal
+`ATI_ONE_PH_NOTIFICATION_PROXY_SECRET` in the portal's `backend/.env`, which is what the
+portal's seed writes onto the catalogue row. That variable belongs in the environment
+rather than the admin console because a re-seed rewrites the row's `config` and would undo
+a console edit. Set on one side only, the outcomes are not symmetric: set on the portal
+and unchecked here is merely pointless, while checked here with nothing sent makes ATI PH
+refuse **every** request the portal forwards — the app goes completely dark and the portal
+reports it unreachable. Confirm both values before enabling.
 
-The shared Keycloak client must allow the exact mounted callback
+The guard covers everything except one path:
+
+```text
+/apps/ph-notification/app/api/health/live   served without proof - for the container healthcheck
+everything else                             refused without proof, static assets included
+```
+
+The exemption exists because the healthcheck runs inside the container and has no secret
+to present; without it, turning the guard on marks a healthy container unhealthy. `/health`
+and `/ready` read the database and stay behind the guard, so verify those through the
+public ATI One route where the proxy supplies the header — not against the private
+address, where they will correctly answer `403`.
+
+Reaching the private address directly in a browser answers `403` with a page saying the
+app is reachable only through ATI One. That is the guard working, not a misconfiguration.
+
+**ATI PH's own Keycloak client** — `ph-notif`, not the portal's — must allow the exact
+mounted callback
 
 ```text
 https://one.atibusinessgroup.com/apps/ph-notification/app/api/auth/callback/keycloak
 ```
 
 Do not register the private upstream address as the canonical production browser callback
+
+The portal deployment must also carry the internal-app proxy's `_rsc` key alignment. Without
+it an open app page repeats one request pair tens of times a second — reads only, so nothing
+breaks and nothing appears in an error log, but it is per open tab and it multiplies by the
+number of people who leave one open. See `alignedSearch` in the portal's internal-app route.
 
 ## 9. Start the web process
 
@@ -308,7 +361,20 @@ Expected roles
 
 If trusted automation is enabled, `/ready` requires a fresh successful worker heartbeat
 
-Also validate one mounted browser login round trip through ATI One and confirm ATI PH creates its own `ati_ph_session`
+Also validate one mounted browser login round trip through ATI One and confirm ATI PH
+creates its own session cookie
+
+```text
+__Secure-ph-notification-app.session     over https, which production always is
+```
+
+The name is a contract with the portal, not a local choice. ATI One clears an internal
+app's cookies at sign-out by matching `/^(?:__Secure-|__Host-)?([a-z0-9][a-z0-9-]*)-app\./`
+against the cookie header — nothing asks the app and there is no registry. This cookie was
+called `ati_ph_session`, which does not match that pattern, so ATI PH stayed signed in when
+every other application signed out. If a deployment reports the old name, the build is
+older than that fix. `__Host-` is illegal here: it forces `Path=/`, and these cookies are
+scoped to the mount path.
 
 ## 12. Trusted automation activation
 
@@ -426,9 +492,13 @@ Never include raw secret values in the deployment report
 The deploy agent must treat source code and these documents as the current execution contract
 
 - `.env.production.example`
+- `AGENTS.md` — the failures that have already cost time here, and how each was proved
 - `package.json`
 - `next.config.ts`
-- `src/config/server-env.ts`
+- `src/config/server-env.ts` — every variable this app reads, and the coherence rules
+- `src/config/app.ts` — the single declaration of the mount path
+- `src/auth/cookie-names.ts` — the cookie contract with the portal
+- `src/auth/oidc.ts` — `browserUrl`: redirects name the browser's address, never this bind
 - `src/proxy.ts`
 - `src/worker/main.ts`
 - `src/email/automatic-delivery-release.ts`

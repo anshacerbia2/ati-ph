@@ -10,7 +10,7 @@
 | Repository | `D:\ATI-Projects\ati-ph` |
 | Initial web stack | Next.js 16.3.1 App Router, React 19, TypeScript |
 | Canonical production browser URL | `https://one.atibusinessgroup.com/apps/ph-notification/app` |
-| Identity baseline | Keycloak realm `ati-one`, temporarily reusing the ATI One client ID |
+| Identity baseline | Keycloak realm `ati-one`, ATI PH's own client `ph-notif` |
 | Reuse strategy | Prove modules in one vertical slice before platform extraction |
 
 ## 1. Delivery Principle
@@ -21,7 +21,7 @@ Do not begin by building a generic platform, generic workflow engine, or microse
 
 The `ati-ph` codebase, database, worker, domain logic, roles, and audit trail are independently owned. Initial browser delivery is through ATI One's internal same-origin iframe and proxy path. Work in this repository must not modify the ATI One project
 
-The initial authentication configuration temporarily reuses the ATI One Keycloak client ID and credential. This is an explicit exception, not a general shared-auth pattern: `ati-ph` still creates its own namespaced server-side session and performs its own authorization
+`ati-ph` authenticates against its own Keycloak client `ph-notif`, creates its own namespaced server-side session, and performs its own authorization. It borrowed the ATI One client as an explicit time-bounded exception until 2026-08-21; `architecture.md` 13.5 records what retiring it cost
 
 ## 2. Delivery Sequence
 
@@ -97,7 +97,7 @@ Remove ambiguity before implementation starts
 - Confirmed H-X rule as calendar day or business day
 - Confirmed owner for client master, recipient master, policy, template, and approval
 - Confirmed ATI One public mount URL and private `ati-ph` upstream address for development, staging, and production
-- Approved Keycloak administrator or owner able to add the mounted `ati-ph` callback and logout URIs to the shared ATI One client
+- Approved Keycloak administrator or owner able to add the mounted `ati-ph` callback and logout URIs to ATI PH's own client `ph-notif`
 - Confirmed initial user-role assignment model for Administrator, Operator, Approver, and Auditor
 
 ### Decisions to lock
@@ -112,8 +112,8 @@ Remove ambiguity before implementation starts
 | Initial outbound email route, sender identity, and reply handling | IT and process owner |
 | Artifact retention policy | Compliance and IT |
 | ATI One internal-app mount, upstream address, and TLS termination | ATI One owner, IT, and technical owner |
-| Mounted callback/logout URIs on the shared ATI One Keycloak client | SSO administrator and technical owner |
-| Acceptance and review date for the temporary shared-client exception | Security, ATI One owner, and technical owner |
+| Mounted callback URIs on ATI PH's Keycloak client `ph-notif` | SSO administrator and technical owner |
+| ~~Review date for the temporary shared-client exception~~ — closed 2026-08-21, `ph-notif` registered | Security, ATI One owner, and technical owner |
 | Session maximum age and global logout behavior | Security and technical owner |
 | Application role ownership and group-to-role mapping, if any | Process owner and security |
 | Deployment topology for Next.js web and worker processes | Technical owner and IT |
@@ -129,8 +129,8 @@ Remove ambiguity before implementation starts
 - Next.js 16.3.1 application scaffold with strict TypeScript, linting, tests, and standalone output
 - Worker process scaffold sharing domain and persistence packages without running durable jobs inside web requests
 - PostgreSQL and Prisma migration baseline
-- Shared ATI One Keycloak client registration change set containing only the exact mounted callback, logout, and web-origin allow-lists required by `ati-ph`
-- ADR documenting the temporary shared-client exception, accepted risks, owner, and separation triggers
+- Keycloak client `ph-notif` registering only the exact mounted callbacks `ati-ph` requires
+- ADR documenting the shared-client exception, its accepted risks and separation triggers — all three triggers fired together and it was retired on 2026-08-21
 - Authentication threat model covering state, PKCE, session storage, refresh, logout, and audit events
 - Role and permission matrix for Administrator, Operator, Approver, and Auditor
 
@@ -202,8 +202,8 @@ Still pending before the Phase 1 exit gate is complete:
 #### Shared controls
 
 - ATI One PH Notification dashboard structure and ATI design-system visual tokens mirrored locally so `ati-ph` remains independently deployable
-- Keycloak OIDC Authorization Code Flow with PKCE S256 through the temporarily shared ATI One client ID
-- Opaque `ati_ph_session` cookie and encrypted server-side session records
+- Keycloak OIDC Authorization Code Flow with PKCE S256 through ATI PH's own client `ph-notif`
+- Opaque `__Secure-ph-notification-app.session` cookie and encrypted server-side session records
 - ATI One internal-app proxy proof validation and `/apps/ph-notification/app` base-path handling
 - Application-owned RBAC for Administrator, Operator, Approver, and Auditor
 - Keycloak remains the identity and authentication authority; ATI PH stores only the local user projection plus application role assignments
@@ -463,7 +463,7 @@ Choose one:
 | 7 | Approval and shadow mode | Proves correctness with low external risk |
 | 8 | Email Delivery Engine, provider routing, and retry | Adds external side effect only after result is trusted while avoiding provider lock-in |
 | 9 | Automation and alerts | Removes manual operation only after controls work |
-| 10 | Shared-client separation review | Decides whether the temporary Keycloak client exception remains acceptable |
+| 10 | ~~Shared-client separation review~~ | Closed 2026-08-21: `ati-ph` runs on its own client `ph-notif` |
 | 11 | Second-consumer reuse | Prevents speculative platform extraction |
 
 ## 10. Backlog by Module
@@ -485,7 +485,7 @@ Choose one:
 ### Identity and Access
 
 - Keycloak OIDC discovery through realm `ati-one`
-- Shared ATI One Keycloak client ID and credential as a documented temporary exception
+- Own Keycloak client `ph-notif`; the borrowed-client exception was retired on 2026-08-21
 - Separation-ready environment boundary so a future dedicated client requires configuration and registered URI changes, not domain rewrites
 - Authorization Code Flow with state, nonce, and PKCE S256
 - Access-token RS256 signature, issuer, expiry, `typ=Bearer`, and `azp=KEYCLOAK_CLIENT_ID` validation before any user or session write
@@ -577,7 +577,7 @@ Choose one:
 - Operator cannot perform Administrator or Approver actions without the required permission
 - Maker-checker prevents a submitter from approving the same resource when enabled
 - Logout removes the local session and the configured Keycloak logout mode behaves as documented
-- The implementation uses the configured shared ATI One client ID only for OIDC and records this as a temporary exception
+- The implementation uses ATI PH's own client `ph-notif` for OIDC
 - The mounted callback uses the ATI One public path, never the private upstream address
 - No ATI One application cookie, access token, or refresh token is reused as the `ati-ph` session
 
@@ -677,7 +677,7 @@ The first release is done only when:
 
 - Holiday input follows an approved governed contract
 - Every import is staged and approved before publication
-- Authentication uses the Keycloak realm `ati-one` and the temporarily shared ATI One client ID through the mounted callback path
+- Authentication uses the Keycloak realm `ati-one` and ATI PH's own client `ph-notif` through the mounted callback path
 - `ati-ph` creates and owns a distinct namespaced server-side session even though the OIDC client registration is shared
 - Every protected read and mutation is authorized by `ati-ph` server-side permissions
 - Browser cookies and responses expose no Keycloak token or application secret
