@@ -66,6 +66,18 @@ export const serverEnvSchema = z
      * a missing setting. Every profile states it.
      */
     ATI_ONE_RETURN_URL: z.url(),
+    /*
+     * The one address that becomes an administrator by signing in, and only while it
+     * holds no role at all. See `bootstrapRoleFor`.
+     *
+     * `z.email()` rather than a string: a value that cannot be an address can only ever
+     * match nobody, and a bootstrap that silently matches nobody is the failure this
+     * variable exists to prevent. Refusing it at boot names the typo.
+     *
+     * Optional, and unset means nobody. A fresh database otherwise has no way in — every
+     * screen refuses the first person to arrive, including the screen that grants roles.
+     */
+    BOOTSTRAP_ADMINISTRATOR_EMAIL: z.email().optional(),
     ARTIFACT_STORAGE_DIR: z.string().min(1).default("./storage/artifacts"),
     IMPORT_MAX_FILE_SIZE_BYTES: z.coerce
       .number()

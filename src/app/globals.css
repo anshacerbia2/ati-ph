@@ -915,6 +915,129 @@ h1, h2, h3 { color: var(--text-strong); font-family: var(--font-display); }
   color: var(--text-muted);
 }
 
+/* ── Users and roles ─────────────────────────────────────────────────────── */
+
+.user-admin {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.user-admin__header h2 {
+  margin-top: 6px;
+  font-size: var(--fs-section);
+  font-weight: 600;
+}
+
+.user-admin__header p:last-child {
+  max-width: 72ch;
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.user-admin__message {
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.user-admin__message--error {
+  background: var(--ati-danger-bg);
+  color: var(--ati-danger);
+}
+
+.user-admin__message--notice {
+  background: var(--ati-success-bg);
+  color: var(--ati-success);
+}
+
+.user-admin__empty,
+.user-admin__readonly {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* The table is the one thing here that cannot reflow below a certain width — four
+   columns of which two are prose. It scrolls inside its own box so the page does not. */
+.user-admin__scroll {
+  overflow-x: auto;
+}
+
+.user-admin__table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: var(--fs-meta);
+}
+
+.user-admin__table th,
+.user-admin__table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.user-admin__table thead th {
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* Struck through rather than hidden: a deactivated account still holds its roles, and
+   an administrator deciding whether to reactivate needs to see what comes back with it. */
+.user-admin__table tr[data-inactive="true"] .user-admin__name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.user-admin__name {
+  display: block;
+  color: var(--text-strong);
+  font-weight: 700;
+}
+
+.user-admin__you {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.user-admin__email {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.user-admin__roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.user-admin__role {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-body);
+  white-space: nowrap;
+}
+
+.user-admin__role input {
+  width: 15px;
+  height: 15px;
+}
+
+.user-admin__norole {
+  margin-top: 7px;
+  color: var(--ati-warning);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+}
+
 .form-notice--success {
   background: var(--ati-success-bg);
   color: var(--ati-success);

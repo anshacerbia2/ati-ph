@@ -70,6 +70,16 @@ Maker-checker still compares user identity, so role combinations never allow a u
 - `notification_plan.commit`
 - `notification_plan.approve`
 
+### Users
+
+- `user.read`
+- `user.manage`
+
+Split, because seeing who has access and deciding it are different jobs. An auditor asked
+to confirm that nobody outside operations can approve a notification plan needs the first
+and must not be given the second — and without `user.read` they would have to ask the
+person they are auditing.
+
 ## 4. Current role mapping
 
 ### ADMINISTRATOR
@@ -103,6 +113,7 @@ Maker-checker still compares user identity, so role combinations never allow a u
 - `client.read`
 - `notification_policy.read`
 - `notification_plan.read`
+- `user.read`
 
 The executable mapping in `src/auth/authorization-catalog.ts` is authoritative.
 
@@ -139,6 +150,8 @@ Current governed menu gates include:
 | Calendar Regions | `calendar_region.read` |
 | Client Routing | `client.read` |
 | Notification Policies | `notification_policy.read` |
+| Deliveries | `notification_plan.read` |
+| Users | `user.read` |
 
 Menu visibility is presentation only.
 
@@ -146,9 +159,53 @@ Every page and Route Handler must independently enforce permission requirements.
 
 ## 7. Role assignment
 
-A user must exist locally before role assignment.
+A user must exist locally before role assignment, and a user exists locally because they
+signed in. There is no invite: the realm decides who may authenticate, this database
+decides what they may do, and adding a person here before they have ever arrived would
+make ATI PH a second place where accounts are created.
 
-For local development, sign in once through Keycloak and then run:
+### The screen
+
+**Administration → Users**, at `/admin/users`. It lists everyone who has signed in with
+the roles they hold, and it is the normal way to grant and revoke. It requires
+`user.read` to see and `user.manage` to change.
+
+Two things on it are worth explaining, because both look like clutter until they matter:
+
+**Active sessions** are shown because revoking a role does not end a session. It changes
+what the *next* request may do; a page already open keeps what it has rendered. During an
+incident that is a different question from what the role table says, and the answer to
+"are they still in there" is the session count.
+
+**Deactivate** is not a stronger revoke. Revoking asks "should they still be able to
+approve"; deactivating asks "should they still be able to get in". An inactive user's
+session is revoked on their next request by `resolveFreshSession`, so it does not wait for
+anyone to notice. Nobody can deactivate their own account: it would end the session
+needed to undo it.
+
+The last `ADMINISTRATOR` cannot be revoked. The screen that grants roles requires the
+role being removed, so the estate would need a database edit or a restart with
+`BOOTSTRAP_ADMINISTRATOR_EMAIL` to recover — during whatever caused it. Grant the role to
+somebody else first.
+
+### The way in to an empty database
+
+A fresh database has roles and permissions but nobody holding them, so the first person to
+sign in is refused every screen including this one. `BOOTSTRAP_ADMINISTRATOR_EMAIL` names
+one address that becomes `ADMINISTRATOR` on sign-in, **and only while it holds no role at
+all**. Unset means nobody.
+
+Every grant is written to the audit trail as `AUTH_BOOTSTRAP_ROLE_GRANTED`, carrying the
+address that matched and the variable as the reason, so a role nobody granted is still
+answerable a year later.
+
+⚠ **Clear the variable once a human administrator exists.** While it is set that account
+cannot be demoted — strip its last role and the next sign-in grants `ADMINISTRATOR` again,
+because from the application's side that is indistinguishable from a first sign-in.
+
+### The command line
+
+Still available, and the right tool when there is no browser:
 
 ```cmd
 npm run authz:grant -- --email user@example.com --role OPERATOR

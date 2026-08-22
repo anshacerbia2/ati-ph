@@ -11,6 +11,8 @@ export const PERMISSIONS = {
   NOTIFICATION_PLAN_READ: "notification_plan.read",
   NOTIFICATION_PLAN_COMMIT: "notification_plan.commit",
   NOTIFICATION_PLAN_APPROVE: "notification_plan.approve",
+  USER_READ: "user.read",
+  USER_MANAGE: "user.manage",
 } as const;
 
 export type PermissionCode =
@@ -106,6 +108,23 @@ export const SYSTEM_PERMISSIONS = [
     description:
       "Make maker-checker approval decisions for committed notification jobs",
   },
+  {
+    code: PERMISSIONS.USER_READ,
+    name: "Read users and their roles",
+    description:
+      "View who has signed in to ATI PH and which roles each of them holds",
+  },
+  {
+    /*
+     * Separate from `USER_READ`, because seeing who has access and deciding it are
+     * different jobs. An auditor asked to confirm that nobody outside operations can
+     * approve a plan needs the first and must not be given the second.
+     */
+    code: PERMISSIONS.USER_MANAGE,
+    name: "Manage user roles",
+    description:
+      "Grant and revoke ATI PH roles, and deactivate or reactivate a user",
+  },
 ] as const;
 
 export const ROLE_PERMISSION_CODES: Record<
@@ -125,6 +144,8 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.NOTIFICATION_PLAN_READ,
     PERMISSIONS.NOTIFICATION_PLAN_COMMIT,
     PERMISSIONS.NOTIFICATION_PLAN_APPROVE,
+    PERMISSIONS.USER_READ,
+    PERMISSIONS.USER_MANAGE,
   ],
   OPERATOR: [
     PERMISSIONS.CALENDAR_REGION_READ,
@@ -150,6 +171,11 @@ export const ROLE_PERMISSION_CODES: Record<
     PERMISSIONS.CLIENT_READ,
     PERMISSIONS.NOTIFICATION_POLICY_READ,
     PERMISSIONS.NOTIFICATION_PLAN_READ,
+    /*
+     * Read, never manage. "Who can approve a notification plan" is an audit question,
+     * and an auditor who cannot answer it has to ask the person they are auditing.
+     */
+    PERMISSIONS.USER_READ,
   ],
 };
 
@@ -233,5 +259,13 @@ export const SYSTEM_MENUS: readonly SystemMenuDefinition[] = [
     parentCode: "administration",
     requiredPermission: PERMISSIONS.NOTIFICATION_POLICY_READ,
     sortOrder: 30,
+  },
+  {
+    code: "users",
+    label: "Users",
+    path: "/admin/users",
+    parentCode: "administration",
+    requiredPermission: PERMISSIONS.USER_READ,
+    sortOrder: 40,
   },
 ];

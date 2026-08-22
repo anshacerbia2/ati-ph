@@ -2,6 +2,7 @@ import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
 
 import { verifyAccessToken } from "@/auth/access-token";
+import { applyBootstrapGrant } from "@/auth/bootstrap-grant";
 import { openLoginState } from "@/auth/login-state";
 import {
   browserUrl,
@@ -84,6 +85,13 @@ export async function GET(request: NextRequest) {
         displayName: claims.name ?? claims.preferred_username,
       },
     });
+    /*
+     * Before the session is created, so the very first request this person makes already
+     * carries the role. Granting after would leave one page load in which an
+     * administrator is refused every screen — which reads as the grant not working.
+     */
+    await applyBootstrapGrant(user.id, user.email);
+
     const session = await createSession(
       user.id,
       {
