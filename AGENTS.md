@@ -132,38 +132,32 @@ Things that cost real time here. Check these before assuming your change is brok
 - **The mount path has one declaration**, `DEFAULT_APP_BASE_PATH` in
   `src/config/app.ts`. It was three, they disagreed, and the cookie `Path` silently fell
   back to `/`.
-- **An open page repeats one request pair forever, and it is not yours.** Whatever route
-  the operator is on, Next asks for its RSC payload twice: `?_rsc=A` answers `307` to
-  `?_rsc=B`, `?_rsc=B` answers `200`, and the pair repeats about twenty-five times a
-  second for as long as the tab is open. Reads only — no writes, no jobs, no email — so
-  it is waste rather than damage, but it must not reach production. Next 16.3.1.
+- **If an open page starts repeating one request pair, the `_rsc` key is stale.** Fixed
+  in `ai-portal`, and written here because the symptom appears in this app's routes.
+  Next 16.3.1 derives `_rsc` from a SHA-256 of four routing headers; this app checks it
+  and answers `307` to the corrected URL when it disagrees, the router re-issues its
+  original key, and the pair repeats about twenty-five times a second for as long as the
+  tab is open. The browser hashes a header set it then does not send, so the key is wrong
+  before it leaves. The portal's proxy now recomputes the key from the headers it
+  forwards — `alignedSearch` in its internal-app route.
 
-  Do not re-derive what has already been measured. Each of these was tested and is
-  **not** the cause: the portal proxy and the iframe (reproduces top-level at
-  `/apps/ph-notification/app`, and reproduces against port 3005 directly with a valid
-  session cookie and no portal in the path); rule 8 (predates it — the same pair appears
-  as repeated `401`s in console logs from before the guard was switched on); link
-  prefetching (`prefetch={false}` was shipped, verified live by finding `prefetch:!1` in
-  the served chunk, and the loop continued — the change is reverted); the session layer
-  (zero `AUTH_*` audit rows over an hour with every session alive, so nothing is being
-  revoked or re-issued); the database menu catalogue (paths are clean and identical in
-  shape to routes that do not loop); and `router.refresh()` (both calls sit in event
-  handlers, and there is no interval or polling anywhere).
+  The investigation is worth more than the fix. Seven explanations were tested and
+  eliminated first, every one of them plausible from reading the code: a browser
+  extension, Keycloak's Home URL, a stale build, the session layer, the iframe and the
+  proxy, link prefetching, and `basePath`. Two were eliminated by *shipping* a change
+  that turned out to do nothing — the expensive way, and one of them left a comment
+  claiming a fix that did not work.
 
-  Two facts point where to look next. The two `_rsc` values are **stable across rebuilds
-  and across the whole session**, so they are router-state hashes rather than anything
-  derived from the build; and the looping route **follows whatever page is open**, so it
-  is the router reconciling the route it is already on, not speculating about routes it
-  might visit.
+  What ended it in a single reload was measuring instead of reasoning: recomputing the
+  key at the boundary where the request is reassembled and printing it beside the key
+  that arrived. Two requests with identical headers carried different keys, and there was
+  nothing left to argue about.
 
-  `basePath` was the obvious next suspect and it is **not** the cause either. Built and
-  served once with `NEXT_PUBLIC_APP_BASE_PATH=` empty at the origin root: RSC requests
-  still answer `307` to `?_rsc`, including requests that already carry an `_rsc` value.
-  Identical behaviour mounted and unmounted, so the redirect is unconditional in Next
-  16.3.1 rather than something this app's mount path provokes. That the redirect is
-  unconditional is the next thing to explain — every route answers it, including ones
-  that never loop, so the redirect alone is not the loop and the question is what makes
-  the client re-issue a *stale* key rather than follow the corrected one.
+  Two habits are worth taking from it. **Log the query string**, not just the path — the
+  proxy's own log printed `url.pathname` alone, so two different URLs appeared as one URL
+  alternating between `307` and `200`, which is not a thing that can happen and is why
+  the trail went cold. And **do not ship a fix you have not measured**: a wrong fix costs
+  more than no fix, because the comment beside it will be believed.
 
   Closing the tab stops it, because it is driven entirely by the client.
 - **`redirect_uri` is the address the browser uses**, prefix and all — never the address
