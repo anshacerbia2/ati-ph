@@ -376,6 +376,30 @@ every other application signed out. If a deployment reports the old name, the bu
 older than that fix. `__Host-` is illegal here: it forces `Path=/`, and these cookies are
 scoped to the mount path.
 
+### First deployment only: the administrator bootstrap
+
+A fresh database has roles and permissions but nobody holding them, so the first person to
+sign in is refused every screen — including **Administration → Users**, the screen that
+grants roles. `BOOTSTRAP_ADMINISTRATOR_EMAIL` names one address that becomes
+`ADMINISTRATOR` on sign-in, and only while that user holds no role at all.
+
+Three steps, and the third is the one that gets forgotten:
+
+```text
+1. deploy with BOOTSTRAP_ADMINISTRATOR_EMAIL set, and have that person sign in once
+2. that person grants a second administrator from Administration -> Users
+3. remove the variable and restart
+```
+
+Step 2 exists so the estate depends on neither one person nor one environment variable.
+Step 3 matters because while the variable is set, that account cannot be demoted from
+inside the product: stripping its last role is undone by its next sign-in.
+
+The deploy agent must confirm the grant landed before reporting success — it is recorded
+as `AUTH_BOOTSTRAP_ROLE_GRANTED` in the audit trail, with the matched address and the
+variable named as the reason. A sign-in that produces no such row and no roles means the
+address did not match; check it character for character rather than editing the database.
+
 ## 12. Trusted automation activation
 
 This is a separate operational release decision from application deployment
@@ -481,6 +505,9 @@ The deploy agent must return a sanitized deployment report containing
 - ATI One mounted-login result
 - trusted-automation enabled/disabled state
 - automatic SMTP enabled/disabled state
+- whether `BOOTSTRAP_ADMINISTRATOR_EMAIL` is still set, and whether a second
+  administrator exists — a first deployment is not finished while the estate depends on
+  one account that cannot be demoted
 - kill-switch state
 - production SMTP approval state
 - any open production activation gates
